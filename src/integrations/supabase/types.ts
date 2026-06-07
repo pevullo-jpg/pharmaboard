@@ -14,7 +14,272 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      anticipi: {
+        Row: {
+          assistito_id: string
+          created_at: string
+          data_anticipo: string
+          farmaco: string
+          id: string
+          note: string | null
+          quantita: number
+          stato: string
+          updated_at: string
+        }
+        Insert: {
+          assistito_id: string
+          created_at?: string
+          data_anticipo?: string
+          farmaco: string
+          id?: string
+          note?: string | null
+          quantita?: number
+          stato?: string
+          updated_at?: string
+        }
+        Update: {
+          assistito_id?: string
+          created_at?: string
+          data_anticipo?: string
+          farmaco?: string
+          id?: string
+          note?: string | null
+          quantita?: number
+          stato?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "anticipi_assistito_id_fkey"
+            columns: ["assistito_id"]
+            isOneToOne: false
+            referencedRelation: "assistiti"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      assistiti: {
+        Row: {
+          codice_fiscale: string | null
+          cognome: string
+          created_at: string
+          esenzione: string | null
+          id: string
+          medico: string | null
+          nome: string
+          note: string | null
+          telefono: string | null
+          updated_at: string
+        }
+        Insert: {
+          codice_fiscale?: string | null
+          cognome: string
+          created_at?: string
+          esenzione?: string | null
+          id?: string
+          medico?: string | null
+          nome: string
+          note?: string | null
+          telefono?: string | null
+          updated_at?: string
+        }
+        Update: {
+          codice_fiscale?: string | null
+          cognome?: string
+          created_at?: string
+          esenzione?: string | null
+          id?: string
+          medico?: string | null
+          nome?: string
+          note?: string | null
+          telefono?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      debiti: {
+        Row: {
+          assistito_id: string
+          created_at: string
+          data_debito: string
+          descrizione: string | null
+          id: string
+          importo: number
+          stato: string
+          updated_at: string
+        }
+        Insert: {
+          assistito_id: string
+          created_at?: string
+          data_debito?: string
+          descrizione?: string | null
+          id?: string
+          importo: number
+          stato?: string
+          updated_at?: string
+        }
+        Update: {
+          assistito_id?: string
+          created_at?: string
+          data_debito?: string
+          descrizione?: string | null
+          id?: string
+          importo?: number
+          stato?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "debiti_assistito_id_fkey"
+            columns: ["assistito_id"]
+            isOneToOne: false
+            referencedRelation: "assistiti"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      prenotazioni: {
+        Row: {
+          assistito_id: string
+          created_at: string
+          data_prenotazione: string
+          farmaco: string
+          id: string
+          note: string | null
+          quantita: number
+          stato: string
+          updated_at: string
+        }
+        Insert: {
+          assistito_id: string
+          created_at?: string
+          data_prenotazione?: string
+          farmaco: string
+          id?: string
+          note?: string | null
+          quantita?: number
+          stato?: string
+          updated_at?: string
+        }
+        Update: {
+          assistito_id?: string
+          created_at?: string
+          data_prenotazione?: string
+          farmaco?: string
+          id?: string
+          note?: string | null
+          quantita?: number
+          stato?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "prenotazioni_assistito_id_fkey"
+            columns: ["assistito_id"]
+            isOneToOne: false
+            referencedRelation: "assistiti"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          gmail_connection_id: string | null
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          gmail_connection_id?: string | null
+          id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          gmail_connection_id?: string | null
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      ricette: {
+        Row: {
+          assistito_id: string | null
+          codice_fiscale: string | null
+          cognome: string | null
+          created_at: string
+          data_ricetta: string | null
+          dpc: boolean
+          esenzione: string | null
+          id: string
+          is_dpc_alert: boolean
+          medico: string | null
+          nome: string | null
+          note: string | null
+          numero_ricetta: string | null
+          pdf_url: string | null
+          raw_text: string | null
+          source: string
+          source_email_id: string | null
+          stato: string
+          updated_at: string
+        }
+        Insert: {
+          assistito_id?: string | null
+          codice_fiscale?: string | null
+          cognome?: string | null
+          created_at?: string
+          data_ricetta?: string | null
+          dpc?: boolean
+          esenzione?: string | null
+          id?: string
+          is_dpc_alert?: boolean
+          medico?: string | null
+          nome?: string | null
+          note?: string | null
+          numero_ricetta?: string | null
+          pdf_url?: string | null
+          raw_text?: string | null
+          source?: string
+          source_email_id?: string | null
+          stato?: string
+          updated_at?: string
+        }
+        Update: {
+          assistito_id?: string | null
+          codice_fiscale?: string | null
+          cognome?: string | null
+          created_at?: string
+          data_ricetta?: string | null
+          dpc?: boolean
+          esenzione?: string | null
+          id?: string
+          is_dpc_alert?: boolean
+          medico?: string | null
+          nome?: string | null
+          note?: string | null
+          numero_ricetta?: string | null
+          pdf_url?: string | null
+          raw_text?: string | null
+          source?: string
+          source_email_id?: string | null
+          stato?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ricette_assistito_id_fkey"
+            columns: ["assistito_id"]
+            isOneToOne: false
+            referencedRelation: "assistiti"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
