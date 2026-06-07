@@ -13,6 +13,7 @@ import { Search, ChevronRight, UserPlus, FileStack, Loader2 } from "lucide-react
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { DebitiBadge } from "@/components/pharmacy/debiti-badge";
+import { AnticipiBadge } from "@/components/pharmacy/anticipi-badge";
 
 export const Route = createFileRoute("/_authenticated/assistiti")({
   head: () => ({ meta: [{ title: "Assistiti · Farmacia" }] }),
@@ -130,8 +131,8 @@ function AssistitiPage() {
                     Ricette
                   </Button>
                   <DebitiBadge assistitoId={a.id} label={`${a.cognome} ${a.nome}`} />
+                  <AnticipiBadge assistitoId={a.id} label={`${a.cognome} ${a.nome}`} />
                   {prenAttive > 0 && <Badge variant="secondary">{prenAttive} pren.</Badge>}
-                  {anticipiAperti > 0 && <Badge variant="outline">{anticipiAperti} ant.</Badge>}
                   <ChevronRight className="size-4 text-muted-foreground" />
                 </div>
               </Link>
