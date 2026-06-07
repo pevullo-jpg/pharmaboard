@@ -37,8 +37,7 @@ export function FarmaciaGate({ children }: { children: React.ReactNode }) {
 
   // Super admin: non deve essere bloccato dal requisito di una farmacia associata.
   if (data.isSuperAdmin && !data.farmacia) {
-    const isAdminSurface =
-      location.pathname === "/" || location.pathname.startsWith("/admin/");
+    const isAdminSurface = location.pathname === "/" || location.pathname.startsWith("/admin/");
     if (isAdminSurface) return <>{children}</>;
 
     return (
@@ -94,6 +93,7 @@ export function FarmaciaGate({ children }: { children: React.ReactNode }) {
 
   return <>{children}</>;
 }
+
 
 function CenteredCard({
   icon,
