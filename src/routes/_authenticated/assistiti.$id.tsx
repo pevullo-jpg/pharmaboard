@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
@@ -9,8 +10,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ArrowLeft, Plus, FileText, CalendarClock, Wallet, Euro, Check, Trash2 } from "lucide-react";
+import { ArrowLeft, Plus, FileText, CalendarClock, Wallet, Euro, Check, Trash2, ExternalLink, MailX, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { getRicettaAttachment, deleteRicettaEmail } from "@/lib/gmail.functions";
 import { format } from "date-fns";
 import { it } from "date-fns/locale";
 
@@ -22,6 +24,28 @@ export const Route = createFileRoute("/_authenticated/assistiti/$id")({
 function AssistitoDetail() {
   const { id } = Route.useParams();
   const qc = useQueryClient();
+  const openAtt = useServerFn(getRicettaAttachment);
+  const delEmail = useServerFn(deleteRicettaEmail);
+
+  const openMutation = useMutation({
+    mutationFn: async (ricettaId: string) => openAtt({ data: { ricettaId } }),
+    onSuccess: (res) => {
+      const w = window.open("", "_blank");
+      if (!w) { toast.error("Popup bloccato. Consenti i popup."); return; }
+      if (res.mimeType === "application/pdf") {
+        w.document.write(`<iframe src="${res.dataUrl}" style="border:0;width:100%;height:100vh"></iframe>`);
+      } else {
+        w.document.write(`<img src="${res.dataUrl}" style="max-width:100%;height:auto" alt="${res.filename}" />`);
+      }
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const delEmailMutation = useMutation({
+    mutationFn: async (ricettaId: string) => delEmail({ data: { ricettaId } }),
+    onSuccess: () => { toast.success("Email cestinata e ricetta eliminata"); qc.invalidateQueries({ queryKey: ["ricette", id] }); },
+    onError: (e: Error) => toast.error(e.message),
+  });
 
   const { data: assistito, isLoading } = useQuery({
     queryKey: ["assistito", id],
@@ -103,6 +127,36 @@ function AssistitoDetail() {
                 </div>
               </div>
               <div className="flex gap-2">
+                {r.source_email_id && (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      title="Apri allegato"
+                      disabled={openMutation.isPending && openMutation.variables === r.id}
+                      onClick={() => openMutation.mutate(r.id)}
+                    >
+                      {openMutation.isPending && openMutation.variables === r.id
+                        ? <Loader2 className="size-4 animate-spin" />
+                        : <ExternalLink className="size-4" />}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      title="Elimina email e ricetta"
+                      disabled={delEmailMutation.isPending && delEmailMutation.variables === r.id}
+                      onClick={() => {
+                        if (window.confirm("Spostare l'email nel cestino di Gmail ed eliminare la ricetta?")) {
+                          delEmailMutation.mutate(r.id);
+                        }
+                      }}
+                    >
+                      {delEmailMutation.isPending && delEmailMutation.variables === r.id
+                        ? <Loader2 className="size-4 animate-spin" />
+                        : <MailX className="size-4 text-destructive" />}
+                    </Button>
+                  </>
+                )}
                 {r.stato === "nuova" && (
                   <Button size="sm" variant="outline" onClick={async () => {
                     await supabase.from("ricette").update({ stato: "lavorata" }).eq("id", r.id);
