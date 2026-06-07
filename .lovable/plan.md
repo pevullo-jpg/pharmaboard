@@ -1,97 +1,117 @@
-## Obiettivo
 
-Trasformare l'app in un sistema multi-tenant dove ogni farmacia ha un proprio account, vede solo i propri dati, e l'attivazione/disattivazione è gestita da un super-admin.
+# Sincronizzazione Gmail per farmacia (OAuth per-utente)
 
-## Modello dati
+Ogni farmacia collega la propria casella Gmail con un click. L'app legge solo i messaggi pertinenti (ricette), li importa nella tabella `ricette` e li isola per `farmacia_id`. Niente password salvate, niente forwarding, niente verifica Google a carico tuo.
 
-Introduciamo il concetto di **farmacia** (tenant) e leghiamo tutti i dati operativi a un `farmacia_id`. Gli utenti vengono associati a una farmacia tramite una tabella di membership; i ruoli (super_admin, pharmacy_owner, pharmacy_staff) vivono in una tabella separata per evitare escalation di privilegi.
+## Architettura
 
-### Nuove tabelle
+```text
+Farmacia → click "Collega Gmail" → popup Google OAuth (broker Lovable)
+                                        ↓
+                              connectionId Google salvato su farmacie.gmail_connection_id
+                                        ↓
+        Cron ogni 5 min  →  server fn "sync" per ogni farmacia attiva
+                                        ↓
+        Gmail API (gateway) con filtro Gmail search query
+                                        ↓
+        Parsing oggetto + allegato PDF  →  insert in ricette (farmacia_id)
+```
 
-1. **`farmacie`** — anagrafica tenant
-   - `nome`, `ragione_sociale`, `partita_iva`, `indirizzo`, `citta`, `cap`, `telefono`, `email_contatto`
-   - `stato`: `attiva` | `sospesa` | `disattivata` (default: `sospesa`)
-   - `attivata_at`, `sospesa_at`, `note_admin`
-   - `gmail_connection_id` (la connessione Gmail diventa per-farmacia, non globale)
+## Componenti
 
-2. **`farmacia_members`** — associazione user ↔ farmacia
-   - `farmacia_id`, `user_id`, `ruolo_farmacia` (owner/staff)
-   - Una farmacia può avere più utenti; un utente appartiene a una sola farmacia (vincolo unique su user_id)
+### 1. OAuth per-utente (App User Connector Google)
+- Helper server `src/integrations/lovable/appUserConnector.ts` + client `appUserConnectorClient.ts` (popup, iframe-safe per preview Lovable)
+- Server fn `startGmailConnect` → richiede `authorizationUrl` con scope `gmail.readonly` + `gmail.modify` (per marcare come letto)
+- Server fn `saveGmailConnection({ connectionId })` → scrive `gmail_connection_id` su `farmacie` della farmacia corrente (RLS scoped)
+- Server fn `disconnectGmail` → azzera la colonna
 
-3. **`app_roles`** — ruoli globali (enum: `super_admin`)
-   - `user_id`, `role`
-   - Usata solo per i super-admin della piattaforma; il ruolo nella farmacia sta in `farmacia_members`
+### 2. UI lato farmacia — `/_authenticated/impostazioni/gmail`
+- Stato connessione: "Non collegato" / "Collegato come `farmacia@xxx.it`"
+- Bottone "Collega Gmail" (popup) / "Scollega"
+- Sezione **Filtri ricette** modificabili:
+  - Keyword oggetto (default: `ricetta`, `NRE`, `prescrizione`, `promemoria`, `dematerializzata`)
+  - Mittenti whitelist (domini medici, PEC note)
+  - Solo email con allegato PDF (toggle)
+  - Etichetta Gmail opzionale (es. solo da label "Ricette")
+- Mostra ultime 10 email importate + ultime 5 scartate (debug filtro)
+- Pulsante "Sincronizza ora"
 
-4. **Funzioni security definer**
-   - `is_super_admin(uid)` — controlla `app_roles`
-   - `current_farmacia_id(uid)` — ritorna la farmacia dell'utente da `farmacia_members`
-   - `is_farmacia_attiva(farmacia_id)` — controlla `stato = 'attiva'`
+### 3. Filtro selettivo lato Gmail API
+La query Gmail si costruisce server-side dai filtri della farmacia. Esempio:
+```
+(subject:(ricetta OR NRE OR prescrizione OR promemoria) OR has:attachment filename:pdf)
+  AND newer_than:7d
+  AND -in:spam -in:trash
+```
+Possibilità di restringere a `label:Ricette` se la farmacia ha già un'etichetta dedicata.
 
-### Modifiche tabelle esistenti
+### 4. Sync server function
+- `syncGmailFarmacia(farmaciaId)` (admin, chiamata da cron):
+  1. Legge `gmail_connection_id` + filtri da DB
+  2. `gmail.users.messages.list` con la query
+  3. Per ogni messaggio nuovo (id non già in `ricette.source_email_id`):
+     - `messages.get?format=full`
+     - Estrae mittente, oggetto, data, allegati
+     - Se ha PDF → upload su storage `ricette-pdf/{farmacia_id}/{messageId}.pdf`
+     - Tenta parsing campi base dall'oggetto/corpo (NRE, CF) con regex
+     - Insert in `ricette` con `farmacia_id`, `source='gmail'`, `source_email_id`, `pdf_url`, `stato='nuova'`
+     - Opzionale: marca email come letta (richiede scope `gmail.modify`)
+- `syncAllFarmacie()` itera su tutte le farmacie attive con Gmail collegato
 
-Aggiungo `farmacia_id NOT NULL` a:
-- `assistiti`
-- `ricette`
-- `anticipi`
-- `debiti`
-- `prenotazioni`
+### 5. Cron schedulato
+- Route server pubblica `/api/public/cron/sync-gmail` protetta con `CRON_SECRET` (Bearer header)
+- pg_cron schedulato ogni 5 minuti chiama l'URL pubblico stabile
+- Logga successi/errori in nuova tabella `gmail_sync_log` (farmacia_id, started_at, finished_at, imported, errors, error_message)
 
-**Migrazione dati esistenti**: poiché siamo in fase di sviluppo e i dati attuali appartengono a una sola farmacia di test, creo una farmacia "Default" e assegno tutti i record esistenti ad essa (con valore di default temporaneo, poi rendo NOT NULL).
+### 6. Tabella nuova: `gmail_sync_log`
+Per audit e UI di stato sync per farmacia.
 
-### RLS
+### 7. Storage bucket nuovo: `ricette-pdf` (privato)
+RLS: solo membri della farmacia possono leggere i PDF della propria farmacia.
 
-Sostituisco le policy attuali (`USING (true)`) con policy basate su `farmacia_id = current_farmacia_id(auth.uid()) AND is_farmacia_attiva(farmacia_id)`. I super-admin hanno accesso completo via `is_super_admin(auth.uid())`.
+## Schema DB (migrazione)
 
-**Risultato:**
-- Una farmacia sospesa/disattivata → i suoi utenti non vedono più alcun dato (login funziona ma queries ritornano vuote)
-- Cross-tenant isolation garantita a livello database (non si può bucare via API)
+- Aggiunge a `farmacie`:
+  - `gmail_email` (text) — email effettiva collegata, per UI
+  - `gmail_sync_filters` (jsonb) — keyword, mittenti, label, has_attachment_pdf
+  - `gmail_last_sync_at` (timestamptz)
+  - `gmail_sync_enabled` (boolean default true)
+  - (`gmail_connection_id` esiste già)
+- Crea `gmail_sync_log`
+- Crea bucket storage `ricette-pdf` con RLS per farmacia
 
-## Flusso di onboarding
+## Secrets richiesti
 
-1. **Self-signup farmacia**: nuova pagina `/registra-farmacia` dove il titolare crea account + farmacia (stato iniziale `sospesa`)
-2. **Approvazione super-admin**: il super-admin vede in dashboard la lista farmacie pendenti e clicca "Attiva"
-3. **Login farmacia**: dopo l'attivazione, l'utente accede normalmente e vede solo i propri dati
-4. **Gestione Gmail**: la connessione Gmail diventa per-farmacia (campo `gmail_connection_id` su `farmacie`). Per ora resta la connessione globale del workspace Lovable (limite tecnico del connettore — vedi nota sotto)
+- `GOOGLE_APP_USER_CONNECTOR_CLIENT_ID` — fornito da Lovable (connector google app-user)
+- `CRON_SECRET` — random string per proteggere l'endpoint cron
 
-## Pannello super-admin
+## Limiti / note di trasparenza
 
-Nuova route protetta `/_authenticated/admin/farmacie` (visibile solo se `is_super_admin`):
-- Tabella farmacie con stato, data registrazione, numero utenti, numero ricette
-- Azioni: Attiva, Sospendi, Disattiva, modifica anagrafica, note interne
-- Filtro per stato
+- **Quota Gmail API**: 1 miliardo di unità/giorno per progetto Google, ~250 unità/sync per messaggio. Per 100 farmacie con 50 ricette/giorno = ~1.25M unità/giorno. Margine ampio.
+- **Verifica Google**: il broker Lovable usa la propria app Google già verificata, quindi le farmacie vedono la schermata di consenso "Lovable" — non devi fare verifica tu. Se in futuro volessi branding tuo, serve verifica Google separata (~3-6 settimane).
+- **Scope sensibili**: `gmail.readonly` è sensitive ma supportato. Se aggiungiamo `gmail.modify` per marcare letto, lo scope è restricted — già coperto dal connector Lovable.
+- **Latenza**: 5 min di ritardo medio sulle nuove ricette. Riducibile a 1 min se serve.
+- **Storage PDF**: ~500KB/ricetta. 100 farmacie × 50/giorno × 30gg = ~75GB/mese. Va monitorato; eventuale retention 90 giorni con cleanup.
 
-## UI dell'app
+## Cosa NON fa questo piano
 
-- Header dell'app mostra il nome della farmacia corrente
-- Nuova voce "Farmacie" nel menu (solo super-admin)
-- Schermata "In attesa di attivazione" quando l'utente è loggato ma la sua farmacia è `sospesa`
+- Non invia email (solo lettura)
+- Non gestisce PEC (richiede IMAP separato — fase successiva)
+- Non gestisce Outlook/M365 (richiede secondo connector Microsoft — fase successiva)
+- Non fa OCR del PDF ricetta (parsing solo da oggetto/corpo email; OCR è step opzionale successivo)
 
-## Limite tecnico Gmail multi-farmacia
+## Ordine implementazione
 
-Il connettore Gmail di Lovable autorizza **l'account Gmail del workspace builder**, non un Gmail per farmacia. Opzioni:
+1. Migrazione DB (colonne farmacie + tabella log + bucket storage)
+2. Helper OAuth app-user + collegamento connector Google
+3. Pagina `/impostazioni/gmail` con popup di connessione
+4. Server fn sync + parsing email
+5. Route cron + schedulazione pg_cron
+6. UI log sync e filtri editabili
 
-**A. Una sola casella Gmail centralizzata** (più semplice, MVP): tutte le farmacie ricevono ricette su un'unica casella, e si discrimina per destinatario (es. `farmacia1@dominio.it`, `farmacia2@dominio.it` come alias). Il sync filtra per indirizzo destinatario e assegna il `farmacia_id` di conseguenza.
+## Domande prima di partire
 
-**B. OAuth Google per-farmacia** (corretta a regime): ogni farmacia connette il proprio Gmail con OAuth Google standard. Richiede progetto Google Cloud, OAuth consent screen e gestione token per-farmacia in tabella dedicata. Lavoro extra significativo.
-
-**Proposta**: partire con A (1 settimana), passare a B quando l'app supera le ~5 farmacie reali.
-
-## Piano implementazione
-
-1. Migrazione DB: `farmacie`, `farmacia_members`, `app_roles`, security definer functions, `farmacia_id` su tabelle esistenti, nuove RLS
-2. Bootstrap: creare farmacia "Default" + assegnare l'utente attuale come super_admin + owner
-3. Server functions: `getCurrentFarmacia`, `listFarmacie` (admin), `attivaFarmacia`, `sospendiFarmacia`, `registraNuovaFarmacia`
-4. UI:
-   - Pagina `/registra-farmacia` (pubblica)
-   - Pagina "In attesa di attivazione"
-   - Pannello `/admin/farmacie` (super-admin)
-   - Badge farmacia nell'app shell
-5. Adeguare il sync Gmail con filtro destinatario e assegnazione `farmacia_id`
-6. Test isolamento: creare 2 farmacie e verificare che non si vedano i dati a vicenda
-
-## Domande di conferma
-
-1. **Modello Gmail**: confermi opzione A (casella centralizzata con alias per farmacia) per iniziare?
-2. **Multi-utente per farmacia**: una farmacia può avere più dipendenti che accedono, oppure un solo account per farmacia?
-3. **Self-signup o invito**: le farmacie si registrano da sole (e poi tu approvi) o tu le crei manualmente da super-admin e invii credenziali?
-4. **Super-admin iniziale**: confermi che il tuo utente attuale (quello con cui sei loggato adesso) debba diventare super_admin?
+1. **Scope Gmail**: solo lettura (`gmail.readonly`) o anche marcatura come letto/etichetta "Importata" (`gmail.modify`)? Consiglio modify, è utile.
+2. **Frequenza sync**: 5 minuti va bene o serve quasi-realtime (Gmail push notifications via Pub/Sub, più complesso)?
+3. **Storage PDF**: salviamo i PDF su Storage Lovable o teniamo solo il riferimento Gmail (`source_email_id`) e riscarichiamo on-demand quando l'operatore apre la ricetta? Il secondo risparmia storage ma richiede Gmail sempre collegato.
+4. **Retention**: dopo quanto tempo cancelliamo le email/PDF già processati? 30/90/mai?
