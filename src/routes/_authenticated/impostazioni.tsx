@@ -1,9 +1,9 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Mail, Sparkles, Stethoscope, ChevronRight, ChevronDown, Package, ArrowRight } from "lucide-react";
+import { Sparkles, Stethoscope, ChevronRight, ChevronDown, Package } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { it } from "date-fns/locale";
@@ -20,26 +20,6 @@ function ImpostazioniPage() {
         <h1 className="text-3xl font-semibold tracking-tight">Impostazioni</h1>
         <p className="text-sm text-muted-foreground mt-1">Collegamenti condivisi della farmacia</p>
       </div>
-
-      <Link to="/_authenticated/impostazioni/inoltro-email" className="block group">
-        <Card className="glass-card p-6 transition-colors group-hover:border-primary/40">
-          <div className="flex gap-4 items-start">
-            <div className="size-12 rounded-xl bg-gradient-to-br from-primary to-accent grid place-items-center shrink-0 accent-glow">
-              <Mail className="size-6 text-primary-foreground" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <h2 className="font-semibold flex items-center gap-2 flex-wrap">
-                Inoltro email ricette
-                <Badge className="bg-primary/15 text-primary border border-primary/30">Setup richiesto</Badge>
-              </h2>
-              <p className="text-sm text-muted-foreground mt-2 max-w-md">
-                Configura la casella Gmail della farmacia per inoltrare automaticamente solo le email con ricette al nostro sistema. Setup di 5 minuti, niente password da condividere.
-              </p>
-            </div>
-            <ArrowRight className="size-5 text-muted-foreground shrink-0 transition-transform group-hover:translate-x-0.5" />
-          </div>
-        </Card>
-      </Link>
 
       <Card className="glass-card p-6">
         <div className="flex gap-4">
