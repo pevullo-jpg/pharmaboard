@@ -24,6 +24,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { DebitiBadge } from "@/components/pharmacy/debiti-badge";
 import { AnticipiBadge } from "@/components/pharmacy/anticipi-badge";
+import { PrenotazioniBadge } from "@/components/pharmacy/prenotazioni-badge";
 
 export const Route = createFileRoute("/_authenticated/assistiti")({
   head: () => ({ meta: [{ title: "Assistiti · Farmacia" }] }),
@@ -135,7 +136,6 @@ function AssistitiPage() {
         )}
         <div className="divide-y divide-border/40">
           {(data ?? []).map((a) => {
-            const prenAttive = (a.prenotazioni ?? []).filter((p: { stato: string }) => p.stato !== "consegnato").length;
             const anticipiAperti = (a.anticipi ?? []).filter((p: { stato: string }) => p.stato === "aperto").length;
             return (
               <Link key={a.id} to="/assistiti/$id" params={{ id: a.id }} className="flex items-center justify-between gap-4 px-5 py-4 hover:bg-sidebar-accent/30 transition-colors">
@@ -160,7 +160,7 @@ function AssistitiPage() {
                   </Button>
                   <DebitiBadge assistitoId={a.id} label={`${a.cognome} ${a.nome}`} />
                   <AnticipiBadge assistitoId={a.id} label={`${a.cognome} ${a.nome}`} />
-                  {prenAttive > 0 && <Badge variant="secondary">{prenAttive} pren.</Badge>}
+                  <PrenotazioniBadge assistitoId={a.id} label={`${a.cognome} ${a.nome}`} />
                   <Button
                     size="icon"
                     variant="ghost"
