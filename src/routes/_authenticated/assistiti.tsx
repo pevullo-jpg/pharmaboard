@@ -36,6 +36,7 @@ function AssistitiPage() {
   const [open, setOpen] = useState(false);
   const mergePdfs = useServerFn(getAssistitoMergedPdf);
   const [mergingId, setMergingId] = useState<string | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const handleOpenRicette = async (e: React.MouseEvent, assistitoId: string) => {
     e.preventDefault();
@@ -83,6 +84,23 @@ function AssistitiPage() {
     onSuccess: () => {
       toast.success("Assistito aggiunto");
       setOpen(false);
+      qc.invalidateQueries({ queryKey: ["assistiti"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      await supabase.from("debiti").delete().eq("assistito_id", id);
+      await supabase.from("prenotazioni").delete().eq("assistito_id", id);
+      await supabase.from("anticipi").delete().eq("assistito_id", id);
+      await supabase.from("ricette").delete().eq("assistito_id", id);
+      const { error } = await supabase.from("assistiti").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Assistito eliminato");
+      setDeleteId(null);
       qc.invalidateQueries({ queryKey: ["assistiti"] });
     },
     onError: (e: Error) => toast.error(e.message),
