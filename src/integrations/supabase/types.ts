@@ -31,7 +31,7 @@ export type Database = {
           assistito_id: string
           created_at?: string
           data_anticipo?: string
-          farmacia_id: string
+          farmacia_id?: string
           farmaco: string
           id?: string
           note?: string | null
@@ -108,7 +108,7 @@ export type Database = {
           cognome: string
           created_at?: string
           esenzione?: string | null
-          farmacia_id: string
+          farmacia_id?: string
           id?: string
           medico?: string | null
           nome: string
@@ -156,7 +156,7 @@ export type Database = {
           created_at?: string
           data_debito?: string
           descrizione?: string | null
-          farmacia_id: string
+          farmacia_id?: string
           id?: string
           importo: number
           stato?: string
@@ -296,7 +296,7 @@ export type Database = {
           assistito_id: string
           created_at?: string
           data_prenotazione?: string
-          farmacia_id: string
+          farmacia_id?: string
           farmaco: string
           id?: string
           note?: string | null
@@ -388,7 +388,7 @@ export type Database = {
           data_ricetta?: string | null
           dpc?: boolean
           esenzione?: string | null
-          farmacia_id: string
+          farmacia_id?: string
           id?: string
           is_dpc_alert?: boolean
           medico?: string | null
