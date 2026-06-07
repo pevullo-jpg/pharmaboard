@@ -333,7 +333,7 @@ Se un campo non è presente, usa null. Rispondi SOLO con il JSON.`;
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "google/gemini-2.5-flash",
+      model: "google/gemini-2.5-flash-lite",
       messages: [
         {
           role: "user",
