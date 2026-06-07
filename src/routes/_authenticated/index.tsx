@@ -13,6 +13,7 @@ import { syncGmailRicette, getRicettaAttachment, deleteRicettaEmail } from "@/li
 import { toast } from "sonner";
 import { DebitiBadge } from "@/components/pharmacy/debiti-badge";
 import { AnticipiBadge } from "@/components/pharmacy/anticipi-badge";
+import { PrenotazioniBadge } from "@/components/pharmacy/prenotazioni-badge";
 
 export const Route = createFileRoute("/_authenticated/")({
   head: () => ({ meta: [{ title: "Dashboard · Farmacia" }] }),
@@ -142,6 +143,9 @@ function Dashboard() {
                 )}
                 {r.assistito_id && (
                   <AnticipiBadge assistitoId={r.assistito_id} label={`${r.cognome ?? ""} ${r.nome ?? ""}`.trim()} />
+                )}
+                {r.assistito_id && (
+                  <PrenotazioniBadge assistitoId={r.assistito_id} label={`${r.cognome ?? ""} ${r.nome ?? ""}`.trim()} />
                 )}
                 <Badge variant={r.stato === "nuova" ? "default" : "secondary"}>{r.stato}</Badge>
                 <Button
