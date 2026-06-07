@@ -15,6 +15,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
 import { Route as AuthenticatedImpostazioniRouteImport } from './routes/_authenticated/impostazioni'
 import { Route as AuthenticatedAssistitiRouteImport } from './routes/_authenticated/assistiti'
+import { Route as AuthenticatedImpostazioniInoltroEmailRouteImport } from './routes/_authenticated/impostazioni.inoltro-email'
 import { Route as AuthenticatedAssistitiIdRouteImport } from './routes/_authenticated/assistiti.$id'
 import { Route as AuthenticatedAdminFarmacieRouteImport } from './routes/_authenticated/admin.farmacie'
 
@@ -48,6 +49,12 @@ const AuthenticatedAssistitiRoute = AuthenticatedAssistitiRouteImport.update({
   path: '/assistiti',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedImpostazioniInoltroEmailRoute =
+  AuthenticatedImpostazioniInoltroEmailRouteImport.update({
+    id: '/inoltro-email',
+    path: '/inoltro-email',
+    getParentRoute: () => AuthenticatedImpostazioniRoute,
+  } as any)
 const AuthenticatedAssistitiIdRoute =
   AuthenticatedAssistitiIdRouteImport.update({
     id: '/$id',
@@ -66,18 +73,20 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/registra-farmacia': typeof RegistraFarmaciaRoute
   '/assistiti': typeof AuthenticatedAssistitiRouteWithChildren
-  '/impostazioni': typeof AuthenticatedImpostazioniRoute
+  '/impostazioni': typeof AuthenticatedImpostazioniRouteWithChildren
   '/admin/farmacie': typeof AuthenticatedAdminFarmacieRoute
   '/assistiti/$id': typeof AuthenticatedAssistitiIdRoute
+  '/impostazioni/inoltro-email': typeof AuthenticatedImpostazioniInoltroEmailRoute
 }
 export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/registra-farmacia': typeof RegistraFarmaciaRoute
   '/assistiti': typeof AuthenticatedAssistitiRouteWithChildren
-  '/impostazioni': typeof AuthenticatedImpostazioniRoute
+  '/impostazioni': typeof AuthenticatedImpostazioniRouteWithChildren
   '/': typeof AuthenticatedIndexRoute
   '/admin/farmacie': typeof AuthenticatedAdminFarmacieRoute
   '/assistiti/$id': typeof AuthenticatedAssistitiIdRoute
+  '/impostazioni/inoltro-email': typeof AuthenticatedImpostazioniInoltroEmailRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -85,10 +94,11 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/registra-farmacia': typeof RegistraFarmaciaRoute
   '/_authenticated/assistiti': typeof AuthenticatedAssistitiRouteWithChildren
-  '/_authenticated/impostazioni': typeof AuthenticatedImpostazioniRoute
+  '/_authenticated/impostazioni': typeof AuthenticatedImpostazioniRouteWithChildren
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/admin/farmacie': typeof AuthenticatedAdminFarmacieRoute
   '/_authenticated/assistiti/$id': typeof AuthenticatedAssistitiIdRoute
+  '/_authenticated/impostazioni/inoltro-email': typeof AuthenticatedImpostazioniInoltroEmailRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -100,6 +110,7 @@ export interface FileRouteTypes {
     | '/impostazioni'
     | '/admin/farmacie'
     | '/assistiti/$id'
+    | '/impostazioni/inoltro-email'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/auth'
@@ -109,6 +120,7 @@ export interface FileRouteTypes {
     | '/'
     | '/admin/farmacie'
     | '/assistiti/$id'
+    | '/impostazioni/inoltro-email'
   id:
     | '__root__'
     | '/_authenticated'
@@ -119,6 +131,7 @@ export interface FileRouteTypes {
     | '/_authenticated/'
     | '/_authenticated/admin/farmacie'
     | '/_authenticated/assistiti/$id'
+    | '/_authenticated/impostazioni/inoltro-email'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -171,6 +184,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAssistitiRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/impostazioni/inoltro-email': {
+      id: '/_authenticated/impostazioni/inoltro-email'
+      path: '/inoltro-email'
+      fullPath: '/impostazioni/inoltro-email'
+      preLoaderRoute: typeof AuthenticatedImpostazioniInoltroEmailRouteImport
+      parentRoute: typeof AuthenticatedImpostazioniRoute
+    }
     '/_authenticated/assistiti/$id': {
       id: '/_authenticated/assistiti/$id'
       path: '/$id'
@@ -202,16 +222,31 @@ const AuthenticatedAssistitiRouteWithChildren =
     AuthenticatedAssistitiRouteChildren,
   )
 
+interface AuthenticatedImpostazioniRouteChildren {
+  AuthenticatedImpostazioniInoltroEmailRoute: typeof AuthenticatedImpostazioniInoltroEmailRoute
+}
+
+const AuthenticatedImpostazioniRouteChildren: AuthenticatedImpostazioniRouteChildren =
+  {
+    AuthenticatedImpostazioniInoltroEmailRoute:
+      AuthenticatedImpostazioniInoltroEmailRoute,
+  }
+
+const AuthenticatedImpostazioniRouteWithChildren =
+  AuthenticatedImpostazioniRoute._addFileChildren(
+    AuthenticatedImpostazioniRouteChildren,
+  )
+
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAssistitiRoute: typeof AuthenticatedAssistitiRouteWithChildren
-  AuthenticatedImpostazioniRoute: typeof AuthenticatedImpostazioniRoute
+  AuthenticatedImpostazioniRoute: typeof AuthenticatedImpostazioniRouteWithChildren
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedAdminFarmacieRoute: typeof AuthenticatedAdminFarmacieRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAssistitiRoute: AuthenticatedAssistitiRouteWithChildren,
-  AuthenticatedImpostazioniRoute: AuthenticatedImpostazioniRoute,
+  AuthenticatedImpostazioniRoute: AuthenticatedImpostazioniRouteWithChildren,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
   AuthenticatedAdminFarmacieRoute: AuthenticatedAdminFarmacieRoute,
 }
@@ -227,3 +262,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
