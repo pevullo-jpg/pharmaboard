@@ -9,7 +9,7 @@ import { ArrowLeft, Copy, Check, Mail, Info, AlertCircle, Loader2 } from "lucide
 import { getInboundHubInfo } from "@/lib/inboundHub.functions";
 import { toast } from "sonner";
 
-export const Route = createFileRoute("/_authenticated/impostazioni/inoltro-email")({
+export const Route = createFileRoute("/_authenticated/impostazioni_/inoltro-email")({
   head: () => ({ meta: [{ title: "Inoltro email · Farmacia" }] }),
   component: InoltroEmailPage,
 });
