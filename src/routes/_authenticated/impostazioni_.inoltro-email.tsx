@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Copy, Check, Mail, Info, AlertCircle, Loader2 } from "lucide-react";
+import { ArrowLeft, Copy, Check, Mail, Info, AlertCircle, Loader2, CheckCircle2 } from "lucide-react";
 import { getInboundHubInfo } from "@/lib/inboundHub.functions";
 import { toast } from "sonner";
 
@@ -22,11 +22,12 @@ function InoltroEmailPage() {
   });
 
   const [copied, setCopied] = useState(false);
-  const aliasEmail = data?.aliasEmail;
+  const hubEmail = data?.hubEmail ?? null;
+  const senderConfigured = !!data?.farmacia?.email_inoltro;
 
-  async function copyAlias() {
-    if (!aliasEmail) return;
-    await navigator.clipboard.writeText(aliasEmail);
+  async function copyHub() {
+    if (!hubEmail) return;
+    await navigator.clipboard.writeText(hubEmail);
     setCopied(true);
     toast.success("Indirizzo copiato");
     setTimeout(() => setCopied(false), 2000);
@@ -50,9 +51,9 @@ function InoltroEmailPage() {
             <Mail className="size-6 text-primary-foreground" />
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="font-semibold">Indirizzo di inoltro dedicato</h2>
+            <h2 className="font-semibold">Indirizzo di inoltro</h2>
             <p className="text-sm text-muted-foreground mt-1 mb-4">
-              Questo è l'indirizzo univoco assegnato alla tua farmacia. Configura Gmail per inoltrare qui solo le email con ricette.
+              Questo è l'indirizzo a cui la tua farmacia deve inoltrare le email con ricette. Lo riconosciamo automaticamente dalla tua casella Gmail mittente.
             </p>
 
             {isLoading && (
@@ -68,16 +69,28 @@ function InoltroEmailPage() {
               </div>
             )}
 
-            {!isLoading && aliasEmail && (
+            {!isLoading && hubEmail && (
               <div className="flex items-stretch gap-2">
                 <div className="flex-1 font-mono text-sm bg-sidebar-accent/40 border border-border/40 rounded-lg px-4 py-3 truncate">
-                  {aliasEmail}
+                  {hubEmail}
                 </div>
-                <Button onClick={copyAlias} variant="secondary" className="shrink-0">
+                <Button onClick={copyHub} variant="secondary" className="shrink-0">
                   {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
                   <span className="ml-2">{copied ? "Copiato" : "Copia"}</span>
                 </Button>
               </div>
+            )}
+
+            {senderConfigured ? (
+              <Badge variant="outline" className="mt-3 text-emerald-500 border-emerald-500/40">
+                <CheckCircle2 className="size-3 mr-1" />
+                Inoltro attivo da {data?.farmacia?.email_inoltro}
+              </Badge>
+            ) : (
+              <Badge variant="outline" className="mt-3 text-amber-500 border-amber-500/40">
+                <Info className="size-3 mr-1" />
+                In attesa del primo inoltro per riconoscere la tua casella
+              </Badge>
             )}
 
             {data?.farmacia?.stato && data.farmacia.stato !== "attiva" && (
@@ -99,8 +112,8 @@ function InoltroEmailPage() {
         <ol className="space-y-5">
           <Step n={1} title="Aggiungi l'indirizzo di inoltro">
             <p>In Gmail, vai su <strong>Impostazioni → Inoltro e POP/IMAP → Aggiungi un indirizzo di inoltro</strong>.</p>
-            <p>Incolla l'indirizzo che ti abbiamo assegnato (il box sopra).</p>
-            <p className="text-muted-foreground">Gmail invierà un codice di conferma a quell'alias. Noi lo riceveremo e te lo comunicheremo entro pochi minuti per confermare l'attivazione.</p>
+            <p>Incolla l'indirizzo del box sopra (uguale per tutte le farmacie).</p>
+            <p className="text-muted-foreground">Gmail invierà un codice di conferma. Noi lo riceveremo e te lo comunicheremo entro pochi minuti per confermare l'attivazione.</p>
           </Step>
 
           <Step n={2} title="Crea il filtro per le ricette">
@@ -123,7 +136,7 @@ function InoltroEmailPage() {
           </Step>
 
           <Step n={4} title="Verifica">
-            <p>Aspetta che arrivi una nuova ricetta o invia tu stesso un test dalla casella. Entro 5 minuti la ricetta apparirà nella dashboard.</p>
+            <p>Aspetta che arrivi una nuova ricetta o invia tu stesso un test dalla casella. La prima volta riconosciamo automaticamente la tua casella Gmail come mittente — da lì in poi tutte le ricette successive arriveranno nella dashboard entro 5 minuti.</p>
           </Step>
         </ol>
       </Card>
