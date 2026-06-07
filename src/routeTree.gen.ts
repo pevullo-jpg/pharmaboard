@@ -18,6 +18,7 @@ import { Route as AuthenticatedAssistitiRouteImport } from './routes/_authentica
 import { Route as AuthenticatedImpostazioniInoltroEmailRouteImport } from './routes/_authenticated/impostazioni_.inoltro-email'
 import { Route as AuthenticatedAssistitiIdRouteImport } from './routes/_authenticated/assistiti.$id'
 import { Route as AuthenticatedAdminFarmacieRouteImport } from './routes/_authenticated/admin.farmacie'
+import { Route as AuthenticatedAdminEmailPendingRouteImport } from './routes/_authenticated/admin.email-pending'
 import { Route as ApiPublicHooksSyncInboundHubRouteImport } from './routes/api/public/hooks/sync-inbound-hub'
 
 const RegistraFarmaciaRoute = RegistraFarmaciaRouteImport.update({
@@ -68,6 +69,12 @@ const AuthenticatedAdminFarmacieRoute =
     path: '/admin/farmacie',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedAdminEmailPendingRoute =
+  AuthenticatedAdminEmailPendingRouteImport.update({
+    id: '/admin/email-pending',
+    path: '/admin/email-pending',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const ApiPublicHooksSyncInboundHubRoute =
   ApiPublicHooksSyncInboundHubRouteImport.update({
     id: '/api/public/hooks/sync-inbound-hub',
@@ -81,6 +88,7 @@ export interface FileRoutesByFullPath {
   '/registra-farmacia': typeof RegistraFarmaciaRoute
   '/assistiti': typeof AuthenticatedAssistitiRouteWithChildren
   '/impostazioni': typeof AuthenticatedImpostazioniRoute
+  '/admin/email-pending': typeof AuthenticatedAdminEmailPendingRoute
   '/admin/farmacie': typeof AuthenticatedAdminFarmacieRoute
   '/assistiti/$id': typeof AuthenticatedAssistitiIdRoute
   '/impostazioni/inoltro-email': typeof AuthenticatedImpostazioniInoltroEmailRoute
@@ -92,6 +100,7 @@ export interface FileRoutesByTo {
   '/assistiti': typeof AuthenticatedAssistitiRouteWithChildren
   '/impostazioni': typeof AuthenticatedImpostazioniRoute
   '/': typeof AuthenticatedIndexRoute
+  '/admin/email-pending': typeof AuthenticatedAdminEmailPendingRoute
   '/admin/farmacie': typeof AuthenticatedAdminFarmacieRoute
   '/assistiti/$id': typeof AuthenticatedAssistitiIdRoute
   '/impostazioni/inoltro-email': typeof AuthenticatedImpostazioniInoltroEmailRoute
@@ -105,6 +114,7 @@ export interface FileRoutesById {
   '/_authenticated/assistiti': typeof AuthenticatedAssistitiRouteWithChildren
   '/_authenticated/impostazioni': typeof AuthenticatedImpostazioniRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
+  '/_authenticated/admin/email-pending': typeof AuthenticatedAdminEmailPendingRoute
   '/_authenticated/admin/farmacie': typeof AuthenticatedAdminFarmacieRoute
   '/_authenticated/assistiti/$id': typeof AuthenticatedAssistitiIdRoute
   '/_authenticated/impostazioni_/inoltro-email': typeof AuthenticatedImpostazioniInoltroEmailRoute
@@ -118,6 +128,7 @@ export interface FileRouteTypes {
     | '/registra-farmacia'
     | '/assistiti'
     | '/impostazioni'
+    | '/admin/email-pending'
     | '/admin/farmacie'
     | '/assistiti/$id'
     | '/impostazioni/inoltro-email'
@@ -129,6 +140,7 @@ export interface FileRouteTypes {
     | '/assistiti'
     | '/impostazioni'
     | '/'
+    | '/admin/email-pending'
     | '/admin/farmacie'
     | '/assistiti/$id'
     | '/impostazioni/inoltro-email'
@@ -141,6 +153,7 @@ export interface FileRouteTypes {
     | '/_authenticated/assistiti'
     | '/_authenticated/impostazioni'
     | '/_authenticated/'
+    | '/_authenticated/admin/email-pending'
     | '/_authenticated/admin/farmacie'
     | '/_authenticated/assistiti/$id'
     | '/_authenticated/impostazioni_/inoltro-email'
@@ -219,6 +232,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminFarmacieRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/admin/email-pending': {
+      id: '/_authenticated/admin/email-pending'
+      path: '/admin/email-pending'
+      fullPath: '/admin/email-pending'
+      preLoaderRoute: typeof AuthenticatedAdminEmailPendingRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/api/public/hooks/sync-inbound-hub': {
       id: '/api/public/hooks/sync-inbound-hub'
       path: '/api/public/hooks/sync-inbound-hub'
@@ -247,6 +267,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAssistitiRoute: typeof AuthenticatedAssistitiRouteWithChildren
   AuthenticatedImpostazioniRoute: typeof AuthenticatedImpostazioniRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
+  AuthenticatedAdminEmailPendingRoute: typeof AuthenticatedAdminEmailPendingRoute
   AuthenticatedAdminFarmacieRoute: typeof AuthenticatedAdminFarmacieRoute
   AuthenticatedImpostazioniInoltroEmailRoute: typeof AuthenticatedImpostazioniInoltroEmailRoute
 }
@@ -255,6 +276,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAssistitiRoute: AuthenticatedAssistitiRouteWithChildren,
   AuthenticatedImpostazioniRoute: AuthenticatedImpostazioniRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
+  AuthenticatedAdminEmailPendingRoute: AuthenticatedAdminEmailPendingRoute,
   AuthenticatedAdminFarmacieRoute: AuthenticatedAdminFarmacieRoute,
   AuthenticatedImpostazioniInoltroEmailRoute:
     AuthenticatedImpostazioniInoltroEmailRoute,
@@ -272,3 +294,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
