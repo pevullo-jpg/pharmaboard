@@ -9,7 +9,17 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { Search, ChevronRight, UserPlus, FileStack, Loader2 } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Search, ChevronRight, UserPlus, FileStack, Loader2, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { DebitiBadge } from "@/components/pharmacy/debiti-badge";
@@ -26,6 +36,7 @@ function AssistitiPage() {
   const [open, setOpen] = useState(false);
   const mergePdfs = useServerFn(getAssistitoMergedPdf);
   const [mergingId, setMergingId] = useState<string | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const handleOpenRicette = async (e: React.MouseEvent, assistitoId: string) => {
     e.preventDefault();
@@ -73,6 +84,23 @@ function AssistitiPage() {
     onSuccess: () => {
       toast.success("Assistito aggiunto");
       setOpen(false);
+      qc.invalidateQueries({ queryKey: ["assistiti"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      await supabase.from("debiti").delete().eq("assistito_id", id);
+      await supabase.from("prenotazioni").delete().eq("assistito_id", id);
+      await supabase.from("anticipi").delete().eq("assistito_id", id);
+      await supabase.from("ricette").delete().eq("assistito_id", id);
+      const { error } = await supabase.from("assistiti").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Assistito eliminato");
+      setDeleteId(null);
       qc.invalidateQueries({ queryKey: ["assistiti"] });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -133,6 +161,14 @@ function AssistitiPage() {
                   <DebitiBadge assistitoId={a.id} label={`${a.cognome} ${a.nome}`} />
                   <AnticipiBadge assistitoId={a.id} label={`${a.cognome} ${a.nome}`} />
                   {prenAttive > 0 && <Badge variant="secondary">{prenAttive} pren.</Badge>}
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteId(a.id); }}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
                   <ChevronRight className="size-4 text-muted-foreground" />
                 </div>
               </Link>
@@ -140,6 +176,27 @@ function AssistitiPage() {
           })}
         </div>
       </Card>
+
+      <AlertDialog open={!!deleteId} onOpenChange={(open) => { if (!open) setDeleteId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminare l'assistito?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Questa azione cancellerà l'assistito e tutti i dati associati (debiti, anticipi, prenotazioni, ricette). Non è annullabile.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annulla</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (deleteId) remove.mutate(deleteId); }}
+              disabled={remove.isPending}
+            >
+              {remove.isPending ? <Loader2 className="size-4 animate-spin" /> : "Elimina"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
