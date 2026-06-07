@@ -47,6 +47,64 @@ function extractValidCFs(text: string): string[] {
   return out;
 }
 
+// ---------- Derivazione delle prime 6 lettere del CF da cognome+nome ----------
+// Regole ufficiali del Ministero delle Finanze (DM 13/12/1976).
+function stripName(s: string): string {
+  return (s || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // accenti
+    .toUpperCase()
+    .replace(/[^A-Z]/g, "");
+}
+function cfCodeCognome(cognome: string): string {
+  const s = stripName(cognome);
+  if (!s) return "XXX";
+  const cons = s.replace(/[AEIOU]/g, "");
+  const vow = s.replace(/[^AEIOU]/g, "");
+  return (cons + vow + "XXX").slice(0, 3);
+}
+function cfCodeNome(nome: string): string {
+  const s = stripName(nome);
+  if (!s) return "XXX";
+  const cons = s.replace(/[AEIOU]/g, "");
+  const vow = s.replace(/[^AEIOU]/g, "");
+  let picked: string;
+  if (cons.length >= 4) picked = cons[0] + cons[2] + cons[3];
+  else picked = (cons + vow + "XXX").slice(0, 3);
+  return picked;
+}
+export function cfPrefixFromName(cognome: string, nome: string): string {
+  return cfCodeCognome(cognome) + cfCodeNome(nome);
+}
+/**
+ * Verifica che le prime 6 lettere del CF siano coerenti con cognome+nome.
+ * Se uno dei due (o entrambi) sono vuoti, NON è possibile decidere → torna true
+ * (per non scartare CF altrimenti validi).
+ */
+export function cfMatchesName(cf: string | null, cognome: string, nome: string): boolean {
+  if (!cf) return false;
+  const norm = normalizeCF(cf);
+  if (!norm) return false;
+  const cleanCog = stripName(cognome);
+  const cleanNom = stripName(nome);
+  if (!cleanCog || !cleanNom) return true;
+  return norm.slice(0, 6) === cfPrefixFromName(cognome, nome);
+}
+
+/**
+ * Sceglie da un elenco di CF validi quello le cui prime 6 lettere
+ * corrispondono al cognome+nome dell'assistito. Se nessuno corrisponde,
+ * torna null (probabilmente sono CF di medici/altri soggetti).
+ */
+function pickCFForName(cfs: string[], cognome: string, nome: string): string | null {
+  if (cfs.length === 0) return null;
+  const cleanCog = stripName(cognome);
+  const cleanNom = stripName(nome);
+  if (!cleanCog || !cleanNom) return cfs[0] ?? null;
+  const target = cfPrefixFromName(cognome, nome);
+  return cfs.find((c) => c.slice(0, 6) === target) ?? null;
+}
+
 /**
  * Risolve o crea un assistito per una farmacia. L'unico criterio di fusione è il
  * codice fiscale: se manca o non è valido, l'assistito NON viene creato.
