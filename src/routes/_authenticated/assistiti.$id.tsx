@@ -126,15 +126,16 @@ function AssistitoDetail() {
               { name: "is_dpc_alert", label: "Avviso DPC", type: "checkbox" },
             ]}
             onSubmit={async (v) => {
+              const s = (k: string) => (typeof v[k] === "string" ? (v[k] as string) : "");
               await supabase.from("ricette").insert({
                 assistito_id: id,
                 nome: assistito.nome,
                 cognome: assistito.cognome,
                 codice_fiscale: assistito.codice_fiscale,
-                medico: v.medico || assistito.medico,
+                medico: s("medico") || assistito.medico,
                 esenzione: assistito.esenzione,
-                data_ricetta: v.data_ricetta || null,
-                numero_ricetta: v.numero_ricetta || null,
+                data_ricetta: s("data_ricetta") || null,
+                numero_ricetta: s("numero_ricetta") || null,
                 dpc: !!v.dpc,
                 is_dpc_alert: !!v.is_dpc_alert,
                 source: "manuale",
@@ -173,7 +174,7 @@ function AssistitoDetail() {
               { name: "note", label: "Note" },
             ]}
             onSubmit={async (v) => {
-              await supabase.from("prenotazioni").insert({ assistito_id: id, farmaco: v.farmaco, quantita: Number(v.quantita) || 1, note: v.note || null });
+              await supabase.from("prenotazioni").insert({ assistito_id: id, farmaco: String(v.farmaco), quantita: Number(v.quantita) || 1, note: (v.note as string) || null });
               invalidate("prenotazioni");
             }}
           />
@@ -204,7 +205,7 @@ function AssistitoDetail() {
               { name: "note", label: "Note" },
             ]}
             onSubmit={async (v) => {
-              await supabase.from("anticipi").insert({ assistito_id: id, farmaco: v.farmaco, quantita: Number(v.quantita) || 1, note: v.note || null });
+              await supabase.from("anticipi").insert({ assistito_id: id, farmaco: String(v.farmaco), quantita: Number(v.quantita) || 1, note: (v.note as string) || null });
               invalidate("anticipi");
             }}
           />
@@ -234,7 +235,7 @@ function AssistitoDetail() {
               { name: "descrizione", label: "Descrizione" },
             ]}
             onSubmit={async (v) => {
-              await supabase.from("debiti").insert({ assistito_id: id, importo: Number(v.importo), descrizione: v.descrizione || null });
+              await supabase.from("debiti").insert({ assistito_id: id, importo: Number(v.importo), descrizione: (v.descrizione as string) || null });
               invalidate("debiti");
             }}
           />
