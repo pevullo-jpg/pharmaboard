@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Search, ChevronRight, UserPlus, FileStack, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { DebitiBadge } from "@/components/pharmacy/debiti-badge";
 
 export const Route = createFileRoute("/_authenticated/assistiti")({
   head: () => ({ meta: [{ title: "Assistiti · Farmacia" }] }),
@@ -105,7 +106,6 @@ function AssistitiPage() {
         )}
         <div className="divide-y divide-border/40">
           {(data ?? []).map((a) => {
-            const debitiAperti = (a.debiti ?? []).filter((d: { stato: string }) => d.stato === "aperto").reduce((s: number, d: { importo: number | string }) => s + Number(d.importo), 0);
             const prenAttive = (a.prenotazioni ?? []).filter((p: { stato: string }) => p.stato !== "consegnato").length;
             const anticipiAperti = (a.anticipi ?? []).filter((p: { stato: string }) => p.stato === "aperto").length;
             return (
@@ -129,9 +129,9 @@ function AssistitiPage() {
                     {mergingId === a.id ? <Loader2 className="size-3.5 animate-spin" /> : <FileStack className="size-3.5" />}
                     Ricette
                   </Button>
+                  <DebitiBadge assistitoId={a.id} label={`${a.cognome} ${a.nome}`} />
                   {prenAttive > 0 && <Badge variant="secondary">{prenAttive} pren.</Badge>}
                   {anticipiAperti > 0 && <Badge variant="outline">{anticipiAperti} ant.</Badge>}
-                  {debitiAperti > 0 && <Badge className="bg-destructive/20 text-destructive border border-destructive/40">{new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(debitiAperti)}</Badge>}
                   <ChevronRight className="size-4 text-muted-foreground" />
                 </div>
               </Link>
