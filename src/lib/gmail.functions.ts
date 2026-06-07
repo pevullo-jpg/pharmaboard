@@ -30,6 +30,77 @@ export const getGmailStatus = createServerFn({ method: "GET" })
     }
   });
 
+// ---------- Open / Delete ----------
+
+export const getRicettaAttachment = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { ricettaId: string }) => z.object({ ricettaId: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { supabase } = context;
+    const { data: r, error } = await supabase
+      .from("ricette")
+      .select("source_email_id")
+      .eq("id", data.ricettaId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!r?.source_email_id) throw new Error("Ricetta senza email collegata");
+
+    const msgRes = await fetch(`${GATEWAY_URL}/users/me/messages/${r.source_email_id}?format=full`, {
+      headers: gmailHeaders(),
+    });
+    if (!msgRes.ok) throw new Error(`Gmail get failed (${msgRes.status})`);
+    const msg = (await msgRes.json()) as GmailMessage;
+
+    const atts = collectAttachmentParts(msg.payload?.parts);
+    if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType === "application/pdf" || msg.payload.mimeType.startsWith("image/"))) {
+      atts.push({ mimeType: msg.payload.mimeType, body: msg.payload.body, filename: "ricetta" });
+    }
+    const att = atts[0];
+    if (!att?.body?.attachmentId) throw new Error("Nessun allegato trovato nell'email");
+
+    const attRes = await fetch(`${GATEWAY_URL}/users/me/messages/${r.source_email_id}/attachments/${att.body.attachmentId}`, {
+      headers: gmailHeaders(),
+    });
+    if (!attRes.ok) throw new Error(`Attachment fetch failed (${attRes.status})`);
+    const attData = (await attRes.json()) as { data?: string };
+    if (!attData.data) throw new Error("Allegato vuoto");
+    const base64 = base64UrlToBase64(attData.data);
+    const mimeType = att.mimeType ?? "application/octet-stream";
+    return {
+      dataUrl: `data:${mimeType};base64,${base64}`,
+      mimeType,
+      filename: att.filename ?? "ricetta",
+    };
+  });
+
+export const deleteRicettaEmail = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { ricettaId: string }) => z.object({ ricettaId: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { supabase } = context;
+    const { data: r, error } = await supabase
+      .from("ricette")
+      .select("source_email_id")
+      .eq("id", data.ricettaId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+
+    if (r?.source_email_id) {
+      const trashRes = await fetch(`${GATEWAY_URL}/users/me/messages/${r.source_email_id}/trash`, {
+        method: "POST",
+        headers: gmailHeaders(),
+      });
+      if (!trashRes.ok && trashRes.status !== 404) {
+        const t = await trashRes.text();
+        throw new Error(`Gmail trash failed (${trashRes.status}): ${t.slice(0, 200)}`);
+      }
+    }
+
+    const { error: dErr } = await supabase.from("ricette").delete().eq("id", data.ricettaId);
+    if (dErr) throw new Error(dErr.message);
+    return { ok: true };
+  });
+
 // ---------- Sync ----------
 
 type GmailMessageMeta = { id: string; threadId: string };
