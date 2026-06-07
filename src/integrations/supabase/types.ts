@@ -224,16 +224,12 @@ export type Database = {
       }
       farmacie: {
         Row: {
+          alias_inbound: string
           attivata_at: string | null
           cap: string | null
           citta: string | null
           created_at: string
           email_contatto: string | null
-          gmail_connection_id: string | null
-          gmail_email: string | null
-          gmail_last_sync_at: string | null
-          gmail_sync_enabled: boolean
-          gmail_sync_filters: Json
           id: string
           indirizzo: string | null
           nome: string
@@ -246,16 +242,12 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          alias_inbound: string
           attivata_at?: string | null
           cap?: string | null
           citta?: string | null
           created_at?: string
           email_contatto?: string | null
-          gmail_connection_id?: string | null
-          gmail_email?: string | null
-          gmail_last_sync_at?: string | null
-          gmail_sync_enabled?: boolean
-          gmail_sync_filters?: Json
           id?: string
           indirizzo?: string | null
           nome: string
@@ -268,16 +260,12 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          alias_inbound?: string
           attivata_at?: string | null
           cap?: string | null
           citta?: string | null
           created_at?: string
           email_contatto?: string | null
-          gmail_connection_id?: string | null
-          gmail_email?: string | null
-          gmail_last_sync_at?: string | null
-          gmail_sync_enabled?: boolean
-          gmail_sync_filters?: Json
           id?: string
           indirizzo?: string | null
           nome?: string
@@ -288,42 +276,6 @@ export type Database = {
           stato?: Database["public"]["Enums"]["farmacia_stato"]
           telefono?: string | null
           updated_at?: string
-        }
-        Relationships: []
-      }
-      gmail_sync_log: {
-        Row: {
-          error_message: string | null
-          errors: number
-          farmacia_id: string
-          finished_at: string | null
-          id: string
-          imported: number
-          skipped: number
-          started_at: string
-          triggered_by: string
-        }
-        Insert: {
-          error_message?: string | null
-          errors?: number
-          farmacia_id: string
-          finished_at?: string | null
-          id?: string
-          imported?: number
-          skipped?: number
-          started_at?: string
-          triggered_by?: string
-        }
-        Update: {
-          error_message?: string | null
-          errors?: number
-          farmacia_id?: string
-          finished_at?: string | null
-          id?: string
-          imported?: number
-          skipped?: number
-          started_at?: string
-          triggered_by?: string
         }
         Relationships: []
       }
@@ -385,21 +337,18 @@ export type Database = {
         Row: {
           created_at: string
           display_name: string | null
-          gmail_connection_id: string | null
           id: string
           updated_at: string
         }
         Insert: {
           created_at?: string
           display_name?: string | null
-          gmail_connection_id?: string | null
           id: string
           updated_at?: string
         }
         Update: {
           created_at?: string
           display_name?: string | null
-          gmail_connection_id?: string | null
           id?: string
           updated_at?: string
         }
