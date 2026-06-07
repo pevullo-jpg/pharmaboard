@@ -642,8 +642,7 @@ export async function runHubSync(): Promise<{
       if (!extracted) continue;
 
       let assistitoId: string | null = null;
-      const cf = extracted.codice_fiscale?.trim().toUpperCase() ?? null;
-      const cfValid = cf && cf.length === 16 ? cf : null;
+      const cfValid = normalizeCF(extracted.codice_fiscale ?? null);
       const nome = (extracted.nome ?? "").trim();
       const cognome = (extracted.cognome ?? "").trim();
       assistitoId = await resolveOrCreateAssistito({
@@ -661,7 +660,7 @@ export async function runHubSync(): Promise<{
         assistito_id: assistitoId,
         nome: extracted.nome ?? null,
         cognome: extracted.cognome ?? null,
-        codice_fiscale: cf,
+        codice_fiscale: cfValid,
         medico: extracted.medico ?? null,
         esenzione: extracted.esenzione ?? null,
         data_ricetta: extracted.data_ricetta ?? null,
