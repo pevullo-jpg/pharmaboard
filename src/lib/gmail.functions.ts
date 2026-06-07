@@ -133,12 +133,20 @@ function normalizePersonValue(value: string | null | undefined): string {
     .toUpperCase();
 }
 
+const CF_REGEX = /[A-Z]{6}[0-9]{2}[A-Z][0-9]{2}[A-Z][0-9]{3}[A-Z]/;
+
+function extractCfFromText(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const m = text.toUpperCase().replace(/\s+/g, "").match(CF_REGEX);
+  return m ? m[0] : null;
+}
+
 export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { assistitoId: string }) => z.object({ assistitoId: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }) => {
     const { supabase } = context;
-    // Load assistito to also catch orphan ricette (assistito_id NULL but same nome+cognome or CF)
+    // Carica l'assistito: il codice fiscale è la discriminante assoluta per fondere le ricette.
     const { data: ass, error: aErr } = await supabase
       .from("assistiti")
       .select("id, nome, cognome, codice_fiscale")
@@ -146,6 +154,10 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
       .maybeSingle();
     if (aErr) throw new Error(aErr.message);
     if (!ass) throw new Error("Assistito non trovato");
+    const assCf = normalizePersonValue(ass.codice_fiscale);
+    if (!assCf || assCf.length !== 16) {
+      throw new Error("L'assistito non ha un codice fiscale valido: impossibile fondere le ricette");
+    }
 
     // Linked ricette
     const { data: linked, error: lErr } = await supabase
@@ -155,27 +167,49 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
       .not("source_email_id", "is", null);
     if (lErr) throw new Error(lErr.message);
 
-    // Orphan ricette matching by CF or normalized nome+cognome.
-    // Some PDFs are extracted without CF, so filtering only in PostgREST can miss valid rows.
+    // Orfani: tutte le ricette non collegate con un'email sorgente.
+    // Se manca il CF (estrazione AI fallita), lo riestraiamo dal PDF.
     const { data: orphanCandidates, error: oErr } = await supabase
       .from("ricette")
-      .select("id, source_email_id, data_ricetta, created_at, nome, cognome, codice_fiscale")
+      .select("id, source_email_id, data_ricetta, created_at, codice_fiscale, raw_text")
       .is("assistito_id", null)
       .not("source_email_id", "is", null);
     if (oErr) throw new Error(oErr.message);
 
-    const assCf = normalizePersonValue(ass.codice_fiscale);
-    const assNome = normalizePersonValue(ass.nome);
-    const assCognome = normalizePersonValue(ass.cognome);
-    const matchedOrphans = (orphanCandidates ?? []).filter((r) => {
-      const cf = normalizePersonValue(r.codice_fiscale);
-      const nome = normalizePersonValue(r.nome);
-      const cognome = normalizePersonValue(r.cognome);
-      return (assCf && cf === assCf) || (!!assNome && !!assCognome && nome === assNome && cognome === assCognome);
-    });
+    const matchedOrphans: { id: string; source_email_id: string | null; data_ricetta: string | null; created_at: string | null; resolvedCf: string }[] = [];
+    for (const r of orphanCandidates ?? []) {
+      let cf = normalizePersonValue(r.codice_fiscale);
+      if (cf.length !== 16) {
+        // Prova a recuperare il CF dal raw_text salvato.
+        cf = extractCfFromText(r.raw_text) ?? "";
+      }
+      if (cf.length !== 16 && r.source_email_id) {
+        // Ultimo tentativo: ri-scarica l'allegato e ri-estrai con AI.
+        try {
+          const att = await fetchFirstAttachmentBytes(r.source_email_id);
+          if (att) {
+            const b64 = uint8ToBase64(att.bytes);
+            const ext = await extractRicettaWithAI(b64, att.mimeType);
+            const aiCf = normalizePersonValue(ext?.codice_fiscale);
+            cf = aiCf.length === 16 ? aiCf : (extractCfFromText(JSON.stringify(ext)) ?? "");
+            if (cf.length === 16) {
+              await supabase.from("ricette").update({ codice_fiscale: cf }).eq("id", r.id);
+            }
+          }
+        } catch (e) {
+          console.error("Re-estrazione CF orfano fallita", r.id, e);
+        }
+      }
+      if (cf === assCf) {
+        matchedOrphans.push({ id: r.id, source_email_id: r.source_email_id, data_ricetta: r.data_ricetta, created_at: r.created_at, resolvedCf: cf });
+      }
+    }
 
     if (matchedOrphans.length > 0) {
-      await supabase.from("ricette").update({ assistito_id: data.assistitoId }).in("id", matchedOrphans.map((r) => r.id));
+      await supabase
+        .from("ricette")
+        .update({ assistito_id: data.assistitoId })
+        .in("id", matchedOrphans.map((r) => r.id));
     }
 
     const orphans = matchedOrphans.map((r) => ({ id: r.id, source_email_id: r.source_email_id, data_ricetta: r.data_ricetta, created_at: r.created_at }));
