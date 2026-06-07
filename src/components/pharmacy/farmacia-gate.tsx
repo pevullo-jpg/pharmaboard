@@ -43,7 +43,7 @@ export function FarmaciaGate({ children }: { children: React.ReactNode }) {
         icon={<ShieldCheck className="size-7 text-accent" />}
         title="Pannello super-amministratore"
         description="Sei loggato come super-amministratore senza una farmacia associata."
-        action={<Link to="/admin/farmacie"><Button>Vai al pannello farmacie</Button></Link>}
+        action={<Link to="/"><Button>Vai al pannello farmacie</Button></Link>}
       />
     );
   }
