@@ -9,7 +9,7 @@ import { format } from "date-fns";
 import { it } from "date-fns/locale";
 
 export const Route = createFileRoute("/_authenticated/impostazioni")({
-  head: () => ({ meta: [{ title: "Impostazioni · Farmacia" }] }),
+  head: () => ({ meta: [{ title: "Anticipi · Farmacia" }] }),
   component: ImpostazioniPage,
 });
 
@@ -17,8 +17,7 @@ function ImpostazioniPage() {
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Impostazioni</h1>
-        <p className="text-sm text-muted-foreground mt-1">Collegamenti condivisi della farmacia</p>
+        <h1 className="text-3xl font-semibold tracking-tight">Gestione anticipi</h1>
       </div>
 
       <MediciSection />
