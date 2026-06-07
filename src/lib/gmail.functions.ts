@@ -4,9 +4,53 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 const GATEWAY_URL = "https://connector-gateway.lovable.dev/google_mail/gmail/v1";
 
+// ---------- Codice fiscale: validazione formale + checksum ----------
+const CF_REGEX = /^[A-Z]{6}[0-9LMNPQRSTUV]{2}[A-Z][0-9LMNPQRSTUV]{2}[A-Z][0-9LMNPQRSTUV]{3}[A-Z]$/;
+const CF_ODD: Record<string, number> = {
+  "0":1,"1":0,"2":5,"3":7,"4":9,"5":13,"6":15,"7":17,"8":19,"9":21,
+  A:1,B:0,C:5,D:7,E:9,F:13,G:15,H:17,I:19,J:21,K:2,L:4,M:18,N:20,
+  O:11,P:3,Q:6,R:8,S:12,T:14,U:16,V:10,W:22,X:25,Y:24,Z:23,
+};
+const CF_EVEN: Record<string, number> = {
+  "0":0,"1":1,"2":2,"3":3,"4":4,"5":5,"6":6,"7":7,"8":8,"9":9,
+  A:0,B:1,C:2,D:3,E:4,F:5,G:6,H:7,I:8,J:9,K:10,L:11,M:12,N:13,
+  O:14,P:15,Q:16,R:17,S:18,T:19,U:20,V:21,W:22,X:23,Y:24,Z:25,
+};
+const CF_OMOCODIA: Record<string, string> = { L:"0", M:"1", N:"2", P:"3", Q:"4", R:"5", S:"6", T:"7", U:"8", V:"9" };
+
+export function normalizeCF(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const cf = raw.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (cf.length !== 16) return null;
+  if (!CF_REGEX.test(cf)) return null;
+  // Validazione checksum (gestisce anche omocodia)
+  const body = cf.slice(0, 15);
+  let sum = 0;
+  for (let i = 0; i < 15; i++) {
+    const ch = body[i];
+    sum += (i % 2 === 0 ? CF_ODD[ch] : CF_EVEN[ch]);
+  }
+  const expected = String.fromCharCode("A".charCodeAt(0) + (sum % 26));
+  if (expected !== cf[15]) return null;
+  return cf;
+}
+
+// Estrae uno o più CF validi (con checksum) da un testo libero.
+function extractValidCFs(text: string): string[] {
+  const cleaned = text.toUpperCase().replace(/[\s\-_.]/g, "");
+  const candidates = cleaned.match(/[A-Z0-9]{16}/g) ?? [];
+  const out: string[] = [];
+  for (const c of candidates) {
+    const norm = normalizeCF(c);
+    if (norm && !out.includes(norm)) out.push(norm);
+  }
+  return out;
+}
+
 /**
- * Risolve o crea un assistito per una farmacia, deduplicando su CF e, in mancanza,
- * su (cognome, nome). Se trova un match per nome e arriva un CF nuovo, aggiorna il record.
+ * Risolve o crea un assistito per una farmacia. L'unico criterio di fusione è il
+ * codice fiscale: se manca o non è valido, l'assistito NON viene creato.
+ * La ricetta resta orfana e visibile in dashboard per intervento manuale.
  */
 async function resolveOrCreateAssistito(args: {
   farmaciaId: string;
@@ -16,44 +60,21 @@ async function resolveOrCreateAssistito(args: {
   medico: string | null;
   esenzione: string | null;
 }): Promise<string | null> {
+  if (!args.cf) return null;
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { farmaciaId, cf, nome, cognome, medico, esenzione } = args;
 
-  // 1) Match per CF
-  if (cf) {
-    const { data: byCf } = await supabaseAdmin
-      .from("assistiti")
-      .select("id")
-      .eq("farmacia_id", farmaciaId)
-      .eq("codice_fiscale", cf)
-      .maybeSingle();
-    if (byCf) return byCf.id;
-  }
+  // 1) Match esclusivamente per CF
+  const { data: byCf } = await supabaseAdmin
+    .from("assistiti")
+    .select("id")
+    .eq("farmacia_id", farmaciaId)
+    .eq("codice_fiscale", cf)
+    .maybeSingle();
+  if (byCf) return byCf.id;
 
-  // 2) Match per cognome+nome (case-insensitive)
-  if (cognome && nome) {
-    const { data: byName } = await supabaseAdmin
-      .from("assistiti")
-      .select("id, codice_fiscale")
-      .eq("farmacia_id", farmaciaId)
-      .ilike("cognome", cognome)
-      .ilike("nome", nome)
-      .limit(1)
-      .maybeSingle();
-    if (byName) {
-      // Se ora abbiamo un CF e prima mancava, completa il record (fusione).
-      if (cf && !byName.codice_fiscale) {
-        await supabaseAdmin
-          .from("assistiti")
-          .update({ codice_fiscale: cf, medico: medico ?? undefined, esenzione: esenzione ?? undefined })
-          .eq("id", byName.id);
-      }
-      return byName.id;
-    }
-  }
-
-  // 3) Crea nuovo (richiede almeno un identificativo: CF oppure cognome+nome)
-  if (!cf && (!cognome || !nome)) return null;
+  // 2) Crea nuovo: serve almeno cognome o nome per intestare il record
+  if (!cognome && !nome) return null;
   const { data: created, error: cErr } = await supabaseAdmin
     .from("assistiti")
     .insert({
@@ -67,28 +88,15 @@ async function resolveOrCreateAssistito(args: {
     .select("id")
     .single();
   if (cErr) {
-    // Race: qualcun altro l'ha creato in parallelo → rileggi.
+    // Race sull'unique index (farmacia_id, codice_fiscale): rileggi.
     console.error("Create assistito failed, retrying lookup", cErr.message);
-    if (cf) {
-      const { data: again } = await supabaseAdmin
-        .from("assistiti")
-        .select("id")
-        .eq("farmacia_id", farmaciaId)
-        .eq("codice_fiscale", cf)
-        .maybeSingle();
-      if (again) return again.id;
-    }
-    if (cognome && nome) {
-      const { data: again } = await supabaseAdmin
-        .from("assistiti")
-        .select("id")
-        .eq("farmacia_id", farmaciaId)
-        .ilike("cognome", cognome)
-        .ilike("nome", nome)
-        .limit(1)
-        .maybeSingle();
-      if (again) return again.id;
-    }
+    const { data: again } = await supabaseAdmin
+      .from("assistiti")
+      .select("id")
+      .eq("farmacia_id", farmaciaId)
+      .eq("codice_fiscale", cf)
+      .maybeSingle();
+    if (again) return again.id;
     return null;
   }
   return created?.id ?? null;
