@@ -230,6 +230,10 @@ export type Database = {
           created_at: string
           email_contatto: string | null
           gmail_connection_id: string | null
+          gmail_email: string | null
+          gmail_last_sync_at: string | null
+          gmail_sync_enabled: boolean
+          gmail_sync_filters: Json
           id: string
           indirizzo: string | null
           nome: string
@@ -248,6 +252,10 @@ export type Database = {
           created_at?: string
           email_contatto?: string | null
           gmail_connection_id?: string | null
+          gmail_email?: string | null
+          gmail_last_sync_at?: string | null
+          gmail_sync_enabled?: boolean
+          gmail_sync_filters?: Json
           id?: string
           indirizzo?: string | null
           nome: string
@@ -266,6 +274,10 @@ export type Database = {
           created_at?: string
           email_contatto?: string | null
           gmail_connection_id?: string | null
+          gmail_email?: string | null
+          gmail_last_sync_at?: string | null
+          gmail_sync_enabled?: boolean
+          gmail_sync_filters?: Json
           id?: string
           indirizzo?: string | null
           nome?: string
@@ -276,6 +288,42 @@ export type Database = {
           stato?: Database["public"]["Enums"]["farmacia_stato"]
           telefono?: string | null
           updated_at?: string
+        }
+        Relationships: []
+      }
+      gmail_sync_log: {
+        Row: {
+          error_message: string | null
+          errors: number
+          farmacia_id: string
+          finished_at: string | null
+          id: string
+          imported: number
+          skipped: number
+          started_at: string
+          triggered_by: string
+        }
+        Insert: {
+          error_message?: string | null
+          errors?: number
+          farmacia_id: string
+          finished_at?: string | null
+          id?: string
+          imported?: number
+          skipped?: number
+          started_at?: string
+          triggered_by?: string
+        }
+        Update: {
+          error_message?: string | null
+          errors?: number
+          farmacia_id?: string
+          finished_at?: string | null
+          id?: string
+          imported?: number
+          skipped?: number
+          started_at?: string
+          triggered_by?: string
         }
         Relationships: []
       }
