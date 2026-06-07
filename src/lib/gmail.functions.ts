@@ -124,6 +124,15 @@ async function fetchFirstAttachmentBytes(emailId: string): Promise<{ bytes: Uint
   return { bytes, mimeType: att.mimeType ?? "application/octet-stream" };
 }
 
+function normalizePersonValue(value: string | null | undefined): string {
+  return (value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toUpperCase();
+}
+
 export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { assistitoId: string }) => z.object({ assistitoId: z.string().uuid() }).parse(d))
@@ -146,28 +155,30 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
       .not("source_email_id", "is", null);
     if (lErr) throw new Error(lErr.message);
 
-    // Orphan ricette matching by CF or nome+cognome
-    let orphanQuery = supabase
+    // Orphan ricette matching by CF or normalized nome+cognome.
+    // Some PDFs are extracted without CF, so filtering only in PostgREST can miss valid rows.
+    const { data: orphanCandidates, error: oErr } = await supabase
       .from("ricette")
       .select("id, source_email_id, data_ricetta, created_at, nome, cognome, codice_fiscale")
       .is("assistito_id", null)
       .not("source_email_id", "is", null);
-    const orFilters: string[] = [];
-    if (ass.codice_fiscale) orFilters.push(`codice_fiscale.eq.${ass.codice_fiscale}`);
-    if (ass.nome && ass.cognome) {
-      orFilters.push(`and(nome.ilike.${ass.nome},cognome.ilike.${ass.cognome})`);
+    if (oErr) throw new Error(oErr.message);
+
+    const assCf = normalizePersonValue(ass.codice_fiscale);
+    const assNome = normalizePersonValue(ass.nome);
+    const assCognome = normalizePersonValue(ass.cognome);
+    const matchedOrphans = (orphanCandidates ?? []).filter((r) => {
+      const cf = normalizePersonValue(r.codice_fiscale);
+      const nome = normalizePersonValue(r.nome);
+      const cognome = normalizePersonValue(r.cognome);
+      return (assCf && cf === assCf) || (!!assNome && !!assCognome && nome === assNome && cognome === assCognome);
+    });
+
+    if (matchedOrphans.length > 0) {
+      await supabase.from("ricette").update({ assistito_id: data.assistitoId }).in("id", matchedOrphans.map((r) => r.id));
     }
-    const orphans: typeof linked = [];
-    if (orFilters.length > 0) {
-      const { data: o, error: oErr } = await orphanQuery.or(orFilters.join(","));
-      if (oErr) throw new Error(oErr.message);
-      // Re-link these to the assistito so future merges include them naturally
-      const ids = (o ?? []).map((r) => r.id);
-      if (ids.length > 0) {
-        await supabase.from("ricette").update({ assistito_id: data.assistitoId }).in("id", ids);
-      }
-      for (const r of o ?? []) orphans.push({ id: r.id, source_email_id: r.source_email_id, data_ricetta: r.data_ricetta, created_at: r.created_at });
-    }
+
+    const orphans = matchedOrphans.map((r) => ({ id: r.id, source_email_id: r.source_email_id, data_ricetta: r.data_ricetta, created_at: r.created_at }));
 
     const ricette = [...(linked ?? []), ...orphans].sort((a, b) => {
       const da = a.data_ricetta ?? a.created_at ?? "";
@@ -407,6 +418,18 @@ export const syncGmailRicette = createServerFn({ method: "POST" })
               .single();
             if (cErr) console.error("Create assistito failed", cErr.message);
             assistitoId = created?.id ?? null;
+          }
+        }
+
+        if (!assistitoId && (extracted.nome || extracted.cognome)) {
+          const { data: assistitiByName } = await supabase
+            .from("assistiti")
+            .select("id, nome, cognome")
+            .ilike("nome", extracted.nome ?? "")
+            .ilike("cognome", extracted.cognome ?? "")
+            .limit(2);
+          if ((assistitiByName ?? []).length === 1) {
+            assistitoId = assistitiByName![0].id;
           }
         }
 
