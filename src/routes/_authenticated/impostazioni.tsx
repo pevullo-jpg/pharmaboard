@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Sparkles, Stethoscope, ChevronRight, ChevronDown, Package } from "lucide-react";
+import { Stethoscope, ChevronRight, ChevronDown, Package } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { it } from "date-fns/locale";
@@ -20,21 +20,6 @@ function ImpostazioniPage() {
         <h1 className="text-3xl font-semibold tracking-tight">Impostazioni</h1>
         <p className="text-sm text-muted-foreground mt-1">Collegamenti condivisi della farmacia</p>
       </div>
-
-      <Card className="glass-card p-6">
-        <div className="flex gap-4">
-          <div className="size-12 rounded-xl bg-primary/15 text-primary grid place-items-center shrink-0">
-            <Sparkles className="size-6" />
-          </div>
-          <div>
-            <h2 className="font-semibold">Parsing AI</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              Le ricette in PDF e immagini vengono interpretate con Gemini multimodale. Nessuna configurazione necessaria.
-            </p>
-            <Badge className="mt-3 bg-primary/15 text-primary border border-primary/30">Attivo</Badge>
-          </div>
-        </div>
-      </Card>
 
       <MediciSection />
     </div>
