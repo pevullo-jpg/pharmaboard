@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as RegistraFarmaciaRouteImport } from './routes/registra-farmacia'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
@@ -16,6 +17,11 @@ import { Route as AuthenticatedImpostazioniRouteImport } from './routes/_authent
 import { Route as AuthenticatedAssistitiRouteImport } from './routes/_authenticated/assistiti'
 import { Route as AuthenticatedAssistitiIdRouteImport } from './routes/_authenticated/assistiti.$id'
 
+const RegistraFarmaciaRoute = RegistraFarmaciaRouteImport.update({
+  id: '/registra-farmacia',
+  path: '/registra-farmacia',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
   path: '/auth',
@@ -51,12 +57,14 @@ const AuthenticatedAssistitiIdRoute =
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
   '/auth': typeof AuthRoute
+  '/registra-farmacia': typeof RegistraFarmaciaRoute
   '/assistiti': typeof AuthenticatedAssistitiRouteWithChildren
   '/impostazioni': typeof AuthenticatedImpostazioniRoute
   '/assistiti/$id': typeof AuthenticatedAssistitiIdRoute
 }
 export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
+  '/registra-farmacia': typeof RegistraFarmaciaRoute
   '/assistiti': typeof AuthenticatedAssistitiRouteWithChildren
   '/impostazioni': typeof AuthenticatedImpostazioniRoute
   '/': typeof AuthenticatedIndexRoute
@@ -66,6 +74,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
+  '/registra-farmacia': typeof RegistraFarmaciaRoute
   '/_authenticated/assistiti': typeof AuthenticatedAssistitiRouteWithChildren
   '/_authenticated/impostazioni': typeof AuthenticatedImpostazioniRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
@@ -73,13 +82,26 @@ export interface FileRoutesById {
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/assistiti' | '/impostazioni' | '/assistiti/$id'
+  fullPaths:
+    | '/'
+    | '/auth'
+    | '/registra-farmacia'
+    | '/assistiti'
+    | '/impostazioni'
+    | '/assistiti/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/auth' | '/assistiti' | '/impostazioni' | '/' | '/assistiti/$id'
+  to:
+    | '/auth'
+    | '/registra-farmacia'
+    | '/assistiti'
+    | '/impostazioni'
+    | '/'
+    | '/assistiti/$id'
   id:
     | '__root__'
     | '/_authenticated'
     | '/auth'
+    | '/registra-farmacia'
     | '/_authenticated/assistiti'
     | '/_authenticated/impostazioni'
     | '/_authenticated/'
@@ -89,10 +111,18 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
+  RegistraFarmaciaRoute: typeof RegistraFarmaciaRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/registra-farmacia': {
+      id: '/registra-farmacia'
+      path: '/registra-farmacia'
+      fullPath: '/registra-farmacia'
+      preLoaderRoute: typeof RegistraFarmaciaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/auth': {
       id: '/auth'
       path: '/auth'
@@ -170,7 +200,18 @@ const AuthenticatedRouteRouteWithChildren =
 const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
+  RegistraFarmaciaRoute: RegistraFarmaciaRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
