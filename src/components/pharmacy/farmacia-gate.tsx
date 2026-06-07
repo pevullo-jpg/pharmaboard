@@ -94,7 +94,6 @@ export function FarmaciaGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-
 function CenteredCard({
   icon,
   title,
