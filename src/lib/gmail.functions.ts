@@ -514,32 +514,17 @@ export async function runHubSync(): Promise<{
 
       let assistitoId: string | null = null;
       const cf = extracted.codice_fiscale?.trim().toUpperCase() ?? null;
-      if (cf && cf.length === 16) {
-        const { data: existingAss } = await supabaseAdmin
-          .from("assistiti")
-          .select("id")
-          .eq("farmacia_id", farmaciaId)
-          .eq("codice_fiscale", cf)
-          .maybeSingle();
-        if (existingAss) {
-          assistitoId = existingAss.id;
-        } else if (extracted.nome || extracted.cognome) {
-          const { data: created, error: cErr } = await supabaseAdmin
-            .from("assistiti")
-            .insert({
-              farmacia_id: farmaciaId,
-              nome: extracted.nome ?? "",
-              cognome: extracted.cognome ?? "",
-              codice_fiscale: cf,
-              medico: extracted.medico ?? null,
-              esenzione: extracted.esenzione ?? null,
-            })
-            .select("id")
-            .single();
-          if (cErr) console.error("Create assistito failed", cErr.message);
-          assistitoId = created?.id ?? null;
-        }
-      }
+      const cfValid = cf && cf.length === 16 ? cf : null;
+      const nome = (extracted.nome ?? "").trim();
+      const cognome = (extracted.cognome ?? "").trim();
+      assistitoId = await resolveOrCreateAssistito({
+        farmaciaId,
+        cf: cfValid,
+        nome,
+        cognome,
+        medico: extracted.medico ?? null,
+        esenzione: extracted.esenzione ?? null,
+      });
 
       const isDpc = !!extracted.dpc;
       const { error: rErr } = await supabaseAdmin.from("ricette").insert({
