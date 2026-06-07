@@ -120,17 +120,44 @@ export const listAllFarmacie = createServerFn({ method: "GET" })
 
     // conta membri e ricette per farmacia
     const ids = (farm ?? []).map((f) => f.id);
-    const counts: Record<string, { members: number; ricette: number; assistiti: number }> = {};
-    for (const id of ids) counts[id] = { members: 0, ricette: 0, assistiti: 0 };
+    const counts: Record<string, {
+      members: number;
+      ricette: number;
+      assistiti: number;
+      anticipi: number;
+      prenotazioni: number;
+      debiti: number;
+      total: number;
+    }> = {};
+    for (const id of ids) counts[id] = {
+      members: 0, ricette: 0, assistiti: 0, anticipi: 0, prenotazioni: 0, debiti: 0, total: 0,
+    };
     if (ids.length > 0) {
-      const [{ data: members }, { data: ricette }, { data: assistiti }] = await Promise.all([
+      const [
+        { data: members },
+        { data: ricette },
+        { data: assistiti },
+        { data: anticipi },
+        { data: prenotazioni },
+        { data: debiti },
+      ] = await Promise.all([
         supabaseAdmin.from("farmacia_members").select("farmacia_id").in("farmacia_id", ids),
         supabaseAdmin.from("ricette").select("farmacia_id").in("farmacia_id", ids),
         supabaseAdmin.from("assistiti").select("farmacia_id").in("farmacia_id", ids),
+        supabaseAdmin.from("anticipi").select("farmacia_id").in("farmacia_id", ids),
+        supabaseAdmin.from("prenotazioni").select("farmacia_id").in("farmacia_id", ids),
+        supabaseAdmin.from("debiti").select("farmacia_id").in("farmacia_id", ids),
       ]);
       for (const m of members ?? []) counts[m.farmacia_id].members++;
       for (const r of ricette ?? []) counts[r.farmacia_id].ricette++;
       for (const a of assistiti ?? []) counts[a.farmacia_id].assistiti++;
+      for (const a of anticipi ?? []) counts[a.farmacia_id].anticipi++;
+      for (const p of prenotazioni ?? []) counts[p.farmacia_id].prenotazioni++;
+      for (const d of debiti ?? []) counts[d.farmacia_id].debiti++;
+      for (const id of ids) {
+        const c = counts[id];
+        c.total = c.ricette + c.assistiti + c.anticipi + c.prenotazioni + c.debiti;
+      }
     }
     return { farmacie: farm ?? [], counts };
   });
@@ -164,6 +191,30 @@ export const setFarmaciaStato = createServerFn({ method: "POST" })
     if (data.stato === "sospesa" || data.stato === "disattivata") patch.sospesa_at = now;
 
     const { error } = await supabaseAdmin.from("farmacie").update(patch).eq("id", data.farmaciaId);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+// ============ Admin: imposta data di stop servizi ============
+const SetDataStopSchema = z.object({
+  farmaciaId: z.string().uuid(),
+  dataStop: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
+export const setFarmaciaDataStop = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: z.infer<typeof SetDataStopSchema>) => SetDataStopSchema.parse(d))
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    const { data: admin } = await supabase
+      .from("app_roles").select("role").eq("user_id", userId).eq("role", "super_admin").maybeSingle();
+    if (!admin) throw new Error("Accesso negato");
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin
+      .from("farmacie")
+      .update({ data_stop_servizi: data.dataStop })
+      .eq("id", data.farmaciaId);
     if (error) throw new Error(error.message);
     return { ok: true };
   });

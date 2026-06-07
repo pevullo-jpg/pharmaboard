@@ -228,6 +228,7 @@ export type Database = {
           cap: string | null
           citta: string | null
           created_at: string
+          data_stop_servizi: string
           email_contatto: string | null
           email_inoltro: string | null
           id: string
@@ -246,6 +247,7 @@ export type Database = {
           cap?: string | null
           citta?: string | null
           created_at?: string
+          data_stop_servizi?: string
           email_contatto?: string | null
           email_inoltro?: string | null
           id?: string
@@ -264,6 +266,7 @@ export type Database = {
           cap?: string | null
           citta?: string | null
           created_at?: string
+          data_stop_servizi?: string
           email_contatto?: string | null
           email_inoltro?: string | null
           id?: string

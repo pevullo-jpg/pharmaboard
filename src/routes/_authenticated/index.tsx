@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
@@ -6,21 +6,239 @@ import { StatCard } from "@/components/pharmacy/stat-card";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CalendarClock, FileText, AlertTriangle, Euro, ArrowRight, Mail, Loader2, ExternalLink, Trash2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { CalendarClock, FileText, AlertTriangle, Euro, Mail, Loader2, ExternalLink, Trash2, ShieldCheck, CheckCircle2, PauseCircle, XCircle, Building2, Database } from "lucide-react";
 import { format } from "date-fns";
 import { it } from "date-fns/locale";
 import { syncGmailRicette, getRicettaAttachment, deleteRicettaEmail } from "@/lib/gmail.functions";
+import { getMyFarmacia, listAllFarmacie, setFarmaciaStato, setFarmaciaDataStop } from "@/lib/farmacie.functions";
 import { toast } from "sonner";
 import { DebitiBadge } from "@/components/pharmacy/debiti-badge";
 import { AnticipiBadge } from "@/components/pharmacy/anticipi-badge";
 import { PrenotazioniBadge } from "@/components/pharmacy/prenotazioni-badge";
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import { useState } from "react";
 
 export const Route = createFileRoute("/_authenticated/")({
-  head: () => ({ meta: [{ title: "Dashboard · Farmacia" }] }),
+  head: () => ({ meta: [{ title: "Dashboard" }] }),
   component: Dashboard,
 });
 
 function Dashboard() {
+  const fetchMy = useServerFn(getMyFarmacia);
+  const { data: me, isLoading } = useQuery({
+    queryKey: ["my-farmacia"],
+    queryFn: () => fetchMy(),
+    staleTime: 30_000,
+  });
+  if (isLoading) {
+    return <div className="grid place-items-center py-20"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>;
+  }
+  if (me?.isSuperAdmin) return <SuperAdminDashboard />;
+  return <FarmaciaDashboard />;
+}
+
+// ============ Super admin: monitoraggio farmacie ============
+
+const PIE_COLORS = ["#22d3ee", "#a78bfa", "#f472b6", "#fbbf24", "#34d399", "#fb7185", "#60a5fa", "#c084fc", "#facc15", "#4ade80"];
+
+function SuperAdminDashboard() {
+  const qc = useQueryClient();
+  const list = useServerFn(listAllFarmacie);
+  const setStato = useServerFn(setFarmaciaStato);
+  const setDataStop = useServerFn(setFarmaciaDataStop);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ["admin-farmacie"],
+    queryFn: () => list(),
+  });
+
+  const change = async (id: string, stato: "attiva" | "sospesa" | "disattivata") => {
+    setBusyId(id);
+    try {
+      await setStato({ data: { farmaciaId: id, stato } });
+      toast.success(`Stato aggiornato: ${stato}`);
+      await qc.invalidateQueries({ queryKey: ["admin-farmacie"] });
+      await qc.invalidateQueries({ queryKey: ["my-farmacia"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Errore");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const changeStop = async (id: string, dataStop: string) => {
+    setBusyId(id);
+    try {
+      await setDataStop({ data: { farmaciaId: id, dataStop } });
+      toast.success("Data di stop aggiornata");
+      await qc.invalidateQueries({ queryKey: ["admin-farmacie"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Errore");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  if (isLoading) return <div className="grid place-items-center py-20"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>;
+  if (isError) return <p className="text-destructive">{error instanceof Error ? error.message : "Errore"}</p>;
+
+  const farmacie = data?.farmacie ?? [];
+  const counts = data?.counts ?? {};
+
+  const totaleAttive = farmacie.filter((f) => f.stato === "attiva").length;
+  const totaleRows = farmacie.reduce((s, f) => s + (counts[f.id]?.total ?? 0), 0);
+
+  const pieData = farmacie
+    .map((f) => ({ name: f.nome, value: counts[f.id]?.total ?? 0 }))
+    .filter((d) => d.value > 0)
+    .sort((a, b) => b.value - a.value);
+
+  return (
+    <div className="space-y-8">
+      <div className="flex items-end gap-3">
+        <div className="size-10 rounded-xl bg-accent/15 border border-accent/30 grid place-items-center">
+          <ShieldCheck className="size-5 text-accent" />
+        </div>
+        <div>
+          <h1 className="text-3xl font-semibold tracking-tight">Monitoraggio farmacie</h1>
+          <p className="text-sm text-muted-foreground mt-1">Stato, volumi dati e scadenze di servizio</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <StatCard label="Farmacie totali" value={farmacie.length} icon={Building2} hint={`${totaleAttive} attive`} />
+        <StatCard label="Record totali" value={totaleRows.toLocaleString("it-IT")} icon={Database} hint="Ricette + assistiti + altro" />
+        <StatCard label="Farmacie attive" value={totaleAttive} icon={CheckCircle2} hint={`${farmacie.length - totaleAttive} non attive`} accent />
+      </div>
+
+      <Card className="glass-card p-5">
+        <div className="mb-4">
+          <h2 className="font-semibold">Distribuzione dati per farmacia</h2>
+          <p className="text-xs text-muted-foreground">Quota di record totali (ricette, assistiti, anticipi, prenotazioni, debiti)</p>
+        </div>
+        {pieData.length === 0 ? (
+          <div className="text-sm text-muted-foreground py-12 text-center">Nessun dato registrato.</div>
+        ) : (
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={pieData}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={100}
+                  innerRadius={55}
+                  paddingAngle={2}
+                >
+                  {pieData.map((_, i) => (
+                    <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
+                  formatter={(v: number, n: string) => [`${v.toLocaleString("it-IT")} record (${totaleRows ? ((v / totaleRows) * 100).toFixed(1) : 0}%)`, n]}
+                />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </Card>
+
+      <div className="grid gap-3">
+        {farmacie.map((f) => {
+          const c = counts[f.id] ?? { members: 0, ricette: 0, assistiti: 0, anticipi: 0, prenotazioni: 0, debiti: 0, total: 0 };
+          const quota = totaleRows ? ((c.total / totaleRows) * 100).toFixed(1) : "0.0";
+          return (
+            <Card key={f.id} className="glass-card p-4">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="space-y-2 min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-semibold truncate">{f.nome}</h3>
+                    <StatoBadge stato={f.stato} />
+                  </div>
+                  <div className="text-xs text-muted-foreground space-x-3">
+                    {f.ragione_sociale && <span>{f.ragione_sociale}</span>}
+                    {f.partita_iva && <span>P.IVA {f.partita_iva}</span>}
+                    {f.citta && <span>{f.citta}{f.cap ? ` (${f.cap})` : ""}</span>}
+                  </div>
+                  <div className="text-xs text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 pt-1">
+                    <span><b className="text-foreground">{c.members}</b> operatori</span>
+                    <span><b className="text-foreground">{c.ricette.toLocaleString("it-IT")}</b> ricette</span>
+                    <span><b className="text-foreground">{c.assistiti.toLocaleString("it-IT")}</b> assistiti</span>
+                    <span><b className="text-foreground">{c.anticipi}</b> anticipi</span>
+                    <span><b className="text-foreground">{c.prenotazioni}</b> prenot.</span>
+                    <span><b className="text-foreground">{c.debiti}</b> debiti</span>
+                  </div>
+                  <div className="text-xs">
+                    <span className="text-muted-foreground">Volume dati: </span>
+                    <b className="text-foreground">{c.total.toLocaleString("it-IT")}</b>
+                    <span className="text-muted-foreground"> record · </span>
+                    <span className="text-accent">{quota}%</span>
+                    <span className="text-muted-foreground"> del totale</span>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2 items-end">
+                  <div className="flex gap-2 flex-wrap justify-end">
+                    {f.stato !== "attiva" && (
+                      <Button size="sm" disabled={busyId === f.id} onClick={() => change(f.id, "attiva")}>
+                        <CheckCircle2 className="size-4 mr-1" />Attiva
+                      </Button>
+                    )}
+                    {f.stato !== "sospesa" && (
+                      <Button size="sm" variant="outline" disabled={busyId === f.id} onClick={() => change(f.id, "sospesa")}>
+                        <PauseCircle className="size-4 mr-1" />Sospendi
+                      </Button>
+                    )}
+                    {f.stato !== "disattivata" && (
+                      <Button size="sm" variant="ghost" className="text-destructive" disabled={busyId === f.id} onClick={() => change(f.id, "disattivata")}>
+                        <XCircle className="size-4 mr-1" />Disattiva
+                      </Button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-muted-foreground whitespace-nowrap">Stop servizi</label>
+                    <Input
+                      type="date"
+                      defaultValue={f.data_stop_servizi ?? "2027-01-01"}
+                      disabled={busyId === f.id}
+                      onBlur={(e) => {
+                        const v = e.currentTarget.value;
+                        if (v && v !== f.data_stop_servizi) changeStop(f.id, v);
+                      }}
+                      className="h-8 w-[150px] text-xs"
+                    />
+                  </div>
+                </div>
+              </div>
+            </Card>
+          );
+        })}
+        {farmacie.length === 0 && (
+          <Card className="glass-card p-8 text-center text-muted-foreground">Nessuna farmacia registrata.</Card>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function StatoBadge({ stato }: { stato: string }) {
+  const variants: Record<string, { className: string; label: string }> = {
+    attiva: { className: "bg-emerald-500/15 text-emerald-400 border-emerald-500/30", label: "Attiva" },
+    sospesa: { className: "bg-amber-500/15 text-amber-400 border-amber-500/30", label: "In attesa" },
+    disattivata: { className: "bg-red-500/15 text-red-400 border-red-500/30", label: "Disattivata" },
+  };
+  const v = variants[stato] ?? variants.sospesa;
+  return <Badge variant="outline" className={v.className}>{v.label}</Badge>;
+}
+
+// ============ Farmacia: dashboard operativa esistente ============
+
+function FarmaciaDashboard() {
   const qc = useQueryClient();
   const sync = useServerFn(syncGmailRicette);
   const openAtt = useServerFn(getRicettaAttachment);
@@ -177,11 +395,6 @@ function Dashboard() {
               </div>
             </div>
           ))}
-        </div>
-        <div className="px-5 py-3 border-t border-border/60">
-          <Link to="/assistiti" className="text-xs text-accent inline-flex items-center gap-1 hover:underline">
-            Vai agli assistiti <ArrowRight className="size-3" />
-          </Link>
         </div>
       </Card>
     </div>

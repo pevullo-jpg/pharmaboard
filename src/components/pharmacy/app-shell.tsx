@@ -8,10 +8,13 @@ import { useServerFn } from "@tanstack/react-start";
 import { getMyFarmacia } from "@/lib/farmacie.functions";
 
 type NavItem = { to: string; label: string; icon: typeof LayoutDashboard; exact?: boolean };
-const nav: NavItem[] = [
+const navStaff: NavItem[] = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, exact: true },
   { to: "/assistiti", label: "Assistiti", icon: Users },
   { to: "/impostazioni", label: "Anticipi", icon: Settings },
+];
+const navAdmin: NavItem[] = [
+  { to: "/", label: "Dashboard", icon: LayoutDashboard, exact: true },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -26,6 +29,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   });
   const farmaciaName = ctx?.farmacia?.nome ?? "Farmacia";
   const isSuperAdmin = ctx?.isSuperAdmin ?? false;
+  const nav = isSuperAdmin ? navAdmin : navStaff;
 
   const handleSignOut = async () => {
     await qc.cancelQueries();
@@ -68,18 +72,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
           {isSuperAdmin && (
             <div className="mt-4 border-t border-border/40 pt-4 space-y-1">
-              <Link
-                to="/admin/farmacie"
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all",
-                  location.pathname === "/admin/farmacie"
-                    ? "bg-accent/15 text-accent border border-accent/30 accent-glow"
-                    : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60",
-                )}
-              >
-                <ShieldCheck className="size-4" />
-                Admin Farmacie
-              </Link>
               <Link
                 to="/admin/email-pending"
                 className={cn(
