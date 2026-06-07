@@ -224,12 +224,12 @@ export type Database = {
       }
       farmacie: {
         Row: {
-          alias_inbound: string
           attivata_at: string | null
           cap: string | null
           citta: string | null
           created_at: string
           email_contatto: string | null
+          email_inoltro: string | null
           id: string
           indirizzo: string | null
           nome: string
@@ -242,12 +242,12 @@ export type Database = {
           updated_at: string
         }
         Insert: {
-          alias_inbound: string
           attivata_at?: string | null
           cap?: string | null
           citta?: string | null
           created_at?: string
           email_contatto?: string | null
+          email_inoltro?: string | null
           id?: string
           indirizzo?: string | null
           nome: string
@@ -260,12 +260,12 @@ export type Database = {
           updated_at?: string
         }
         Update: {
-          alias_inbound?: string
           attivata_at?: string | null
           cap?: string | null
           citta?: string | null
           created_at?: string
           email_contatto?: string | null
+          email_inoltro?: string | null
           id?: string
           indirizzo?: string | null
           nome?: string
@@ -278,6 +278,56 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      inbound_pending: {
+        Row: {
+          assigned_farmacia_id: string | null
+          created_at: string
+          forwarded_for: string | null
+          from_email: string | null
+          id: string
+          received_at: string | null
+          snippet: string | null
+          source_email_id: string
+          stato: string
+          subject: string | null
+          updated_at: string
+        }
+        Insert: {
+          assigned_farmacia_id?: string | null
+          created_at?: string
+          forwarded_for?: string | null
+          from_email?: string | null
+          id?: string
+          received_at?: string | null
+          snippet?: string | null
+          source_email_id: string
+          stato?: string
+          subject?: string | null
+          updated_at?: string
+        }
+        Update: {
+          assigned_farmacia_id?: string | null
+          created_at?: string
+          forwarded_for?: string | null
+          from_email?: string | null
+          id?: string
+          received_at?: string | null
+          snippet?: string | null
+          source_email_id?: string
+          stato?: string
+          subject?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inbound_pending_assigned_farmacia_id_fkey"
+            columns: ["assigned_farmacia_id"]
+            isOneToOne: false
+            referencedRelation: "farmacie"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       prenotazioni: {
         Row: {
