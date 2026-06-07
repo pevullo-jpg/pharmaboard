@@ -66,8 +66,6 @@ export function DebitiBadge({ assistitoId, label }: { assistitoId: string; label
     invalidate();
   };
 
-  if (totale === 0 && !label) return null;
-
   return (
     <>
       <button
