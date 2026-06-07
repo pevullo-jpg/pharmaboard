@@ -2,59 +2,32 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-const GATEWAY_BASE_URL = "https://connector-gateway.lovable.dev";
-const CONNECTOR_ID = "google_mail";
-// Workspace google_mail connection providing OAuth client credentials for App User flow.
-const CONNECTOR_CLIENT_ID = "std_01ktghv6p2e1xbpbh4pe7g3pw9";
-const SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"];
+const GATEWAY_URL = "https://connector-gateway.lovable.dev/google_mail/gmail/v1";
 
-export const startGmailConnect = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .inputValidator((input: { targetOrigin: string; returnUrl: string }) =>
-    z
-      .object({
-        targetOrigin: z.string().url(),
-        returnUrl: z.string().url(),
-      })
-      .parse(input),
-  )
-  .handler(async ({ data, context }) => {
-    const { authorizeAppUserOAuth } = await import("@/integrations/lovable/appUserConnector");
-    const { authorizationUrl } = await authorizeAppUserOAuth({
-      gatewayBaseUrl: GATEWAY_BASE_URL,
-      connectorId: CONNECTOR_ID,
-      appUserId: context.userId,
-      connectorClientId: CONNECTOR_CLIENT_ID,
-      returnUrl: data.returnUrl,
-      responseMode: "web_message",
-      webMessageTargetOrigin: data.targetOrigin,
-      credentialsConfiguration: { scopes: SCOPES },
-    });
-    return { authorizationUrl };
-  });
+function gmailHeaders(extra?: HeadersInit): Headers {
+  const apiKey = process.env.LOVABLE_API_KEY;
+  const connKey = process.env.GOOGLE_MAIL_API_KEY;
+  if (!apiKey) throw new Error("LOVABLE_API_KEY missing");
+  if (!connKey) throw new Error("Gmail della farmacia non collegato. Vai in Connettori e collega Gmail.");
+  const h = new Headers(extra);
+  h.set("Authorization", `Bearer ${apiKey}`);
+  h.set("X-Connection-Api-Key", connKey);
+  return h;
+}
 
-export const saveGmailConnection = createServerFn({ method: "POST" })
+export const getGmailStatus = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((input: { connectionId: string }) =>
-    z.object({ connectionId: z.string().min(1).max(128) }).parse(input),
-  )
-  .handler(async ({ data, context }) => {
-    const { error } = await context.supabase
-      .from("profiles")
-      .upsert({ id: context.userId, gmail_connection_id: data.connectionId }, { onConflict: "id" });
-    if (error) throw new Error(error.message);
-    return { ok: true };
-  });
-
-export const disconnectGmail = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    const { error } = await context.supabase
-      .from("profiles")
-      .update({ gmail_connection_id: null })
-      .eq("id", context.userId);
-    if (error) throw new Error(error.message);
-    return { ok: true };
+  .handler(async () => {
+    const connected = !!process.env.GOOGLE_MAIL_API_KEY;
+    if (!connected) return { connected: false as const };
+    try {
+      const res = await fetch(`${GATEWAY_URL}/users/me/profile`, { headers: gmailHeaders() });
+      if (!res.ok) return { connected: false as const, error: `HTTP ${res.status}` };
+      const j = (await res.json()) as { emailAddress?: string };
+      return { connected: true as const, email: j.emailAddress ?? null };
+    } catch (e) {
+      return { connected: false as const, error: e instanceof Error ? e.message : "Errore" };
+    }
   });
 
 // ---------- Sync ----------
@@ -146,28 +119,12 @@ Se un campo non è presente, usa null. Rispondi SOLO con il JSON.`;
 export const syncGmailRicette = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    const { supabase, userId } = context;
-
-    const { data: profile, error: pErr } = await supabase
-      .from("profiles")
-      .select("gmail_connection_id")
-      .eq("id", userId)
-      .maybeSingle();
-    if (pErr) throw new Error(pErr.message);
-    if (!profile?.gmail_connection_id) {
-      throw new Error("Gmail non collegato. Vai in Impostazioni e collega il tuo account.");
-    }
-    const connectionId = profile.gmail_connection_id;
-
-    const { callAsAppUser } = await import("@/integrations/lovable/appUserConnector");
+    const { supabase } = context;
 
     // Last 30 days, prescriptions/DPC keywords with attachments.
     const query = encodeURIComponent("has:attachment newer_than:30d (ricetta OR prescrizione OR DPC)");
-    const listRes = await callAsAppUser({
-      gatewayBaseUrl: GATEWAY_BASE_URL,
-      connectionId,
-      connectorId: CONNECTOR_ID,
-      path: `/gmail/v1/users/me/messages?maxResults=25&q=${query}`,
+    const listRes = await fetch(`${GATEWAY_URL}/users/me/messages?maxResults=25&q=${query}`, {
+      headers: gmailHeaders(),
     });
     if (!listRes.ok) {
       const t = await listRes.text();
@@ -192,11 +149,8 @@ export const syncGmailRicette = createServerFn({ method: "POST" })
         continue;
       }
 
-      const msgRes = await callAsAppUser({
-        gatewayBaseUrl: GATEWAY_BASE_URL,
-        connectionId,
-        connectorId: CONNECTOR_ID,
-        path: `/gmail/v1/users/me/messages/${m.id}?format=full`,
+      const msgRes = await fetch(`${GATEWAY_URL}/users/me/messages/${m.id}?format=full`, {
+        headers: gmailHeaders(),
       });
       if (!msgRes.ok) {
         console.error("Gmail get message failed", m.id, msgRes.status);
@@ -220,11 +174,8 @@ export const syncGmailRicette = createServerFn({ method: "POST" })
       for (const att of attachments) {
         const attId = att.body?.attachmentId;
         if (!attId) continue;
-        const attRes = await callAsAppUser({
-          gatewayBaseUrl: GATEWAY_BASE_URL,
-          connectionId,
-          connectorId: CONNECTOR_ID,
-          path: `/gmail/v1/users/me/messages/${m.id}/attachments/${attId}`,
+        const attRes = await fetch(`${GATEWAY_URL}/users/me/messages/${m.id}/attachments/${attId}`, {
+          headers: gmailHeaders(),
         });
         if (!attRes.ok) {
           console.error("Attachment fetch failed", attRes.status);
