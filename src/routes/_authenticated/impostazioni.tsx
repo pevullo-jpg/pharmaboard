@@ -1,11 +1,9 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Mail, Sparkles, Info, Loader2, CheckCircle2, AlertCircle, Stethoscope, ChevronRight, ChevronDown, Package } from "lucide-react";
-import { getGmailStatus } from "@/lib/gmail.functions";
+import { Mail, Sparkles, Stethoscope, ChevronRight, ChevronDown, Package, ArrowRight } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { it } from "date-fns/locale";
@@ -16,13 +14,6 @@ export const Route = createFileRoute("/_authenticated/impostazioni")({
 });
 
 function ImpostazioniPage() {
-  const status = useServerFn(getGmailStatus);
-  const { data, isLoading } = useQuery({
-    queryKey: ["gmail-status"],
-    queryFn: () => status(),
-  });
-  const connected = !!data?.connected;
-
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
@@ -30,41 +21,25 @@ function ImpostazioniPage() {
         <p className="text-sm text-muted-foreground mt-1">Collegamenti condivisi della farmacia</p>
       </div>
 
-      <Card className="glass-card p-6">
-        <div className="flex gap-4">
-          <div className="size-12 rounded-xl bg-gradient-to-br from-primary to-accent grid place-items-center shrink-0 accent-glow">
-            <Mail className="size-6 text-primary-foreground" />
+      <Link to="/_authenticated/impostazioni/inoltro-email" className="block group">
+        <Card className="glass-card p-6 transition-colors group-hover:border-primary/40">
+          <div className="flex gap-4 items-start">
+            <div className="size-12 rounded-xl bg-gradient-to-br from-primary to-accent grid place-items-center shrink-0 accent-glow">
+              <Mail className="size-6 text-primary-foreground" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h2 className="font-semibold flex items-center gap-2 flex-wrap">
+                Inoltro email ricette
+                <Badge className="bg-primary/15 text-primary border border-primary/30">Setup richiesto</Badge>
+              </h2>
+              <p className="text-sm text-muted-foreground mt-2 max-w-md">
+                Configura la casella Gmail della farmacia per inoltrare automaticamente solo le email con ricette al nostro sistema. Setup di 5 minuti, niente password da condividere.
+              </p>
+            </div>
+            <ArrowRight className="size-5 text-muted-foreground shrink-0 transition-transform group-hover:translate-x-0.5" />
           </div>
-          <div className="flex-1 min-w-0">
-            <h2 className="font-semibold flex items-center gap-2 flex-wrap">
-              Gmail della farmacia
-              {isLoading ? (
-                <Badge variant="outline"><Loader2 className="size-3 animate-spin mr-1" /> Verifica…</Badge>
-              ) : connected ? (
-                <Badge className="bg-accent/20 text-accent border border-accent/40">
-                  <CheckCircle2 className="size-3 mr-1" /> Connesso
-                </Badge>
-              ) : (
-                <Badge variant="outline" className="text-destructive border-destructive/40">
-                  <AlertCircle className="size-3 mr-1" /> Non connesso
-                </Badge>
-              )}
-            </h2>
-            {connected && data?.email && (
-              <p className="text-sm font-mono text-accent mt-1">{data.email}</p>
-            )}
-            <p className="text-sm text-muted-foreground mt-2 max-w-md">
-              Tutti gli operatori della farmacia condividono la stessa casella Gmail. Le ricette ricevute vengono lette automaticamente con AI: nome, cognome, CF, medico, esenzione, data e avviso DPC.
-            </p>
-          </div>
-        </div>
-        <div className="mt-6 flex items-start gap-2 text-xs text-muted-foreground bg-sidebar-accent/40 rounded-lg p-3">
-          <Info className="size-4 shrink-0 mt-0.5" />
-          <div>
-            Per cambiare la casella Gmail collegata, apri <strong>Connettori</strong> dalla barra laterale di Lovable e modifica la connessione Gmail della farmacia. Dopo il collegamento, vai in Dashboard e premi "Sincronizza Gmail".
-          </div>
-        </div>
-      </Card>
+        </Card>
+      </Link>
 
       <Card className="glass-card p-6">
         <div className="flex gap-4">
