@@ -231,12 +231,10 @@ function normalizePersonValue(value: string | null | undefined): string {
     .toUpperCase();
 }
 
-const CF_REGEX = /[A-Z]{6}[0-9]{2}[A-Z][0-9]{2}[A-Z][0-9]{3}[A-Z]/;
-
 function extractCfFromText(text: string | null | undefined): string | null {
   if (!text) return null;
-  const m = text.toUpperCase().replace(/\s+/g, "").match(CF_REGEX);
-  return m ? m[0] : null;
+  const found = extractValidCFs(text);
+  return found[0] ?? null;
 }
 
 function uint8ToBase64(bytes: Uint8Array): string {
