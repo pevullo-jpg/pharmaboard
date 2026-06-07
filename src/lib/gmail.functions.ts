@@ -353,7 +353,13 @@ Se un campo non è presente, usa null. Rispondi SOLO con il JSON.`;
   const content = json.choices?.[0]?.message?.content?.trim() ?? "";
   const cleaned = content.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```$/i, "").trim();
   try {
-    return ExtractedSchema.parse(JSON.parse(cleaned));
+    const parsed = ExtractedSchema.parse(JSON.parse(cleaned));
+    // Fallback: se il modello non ha estratto il CF, cercalo con regex nella risposta grezza.
+    if (!parsed.codice_fiscale || parsed.codice_fiscale.replace(/\s+/g, "").length !== 16) {
+      const cfFromRaw = cleaned.toUpperCase().replace(/\s+/g, "").match(/[A-Z]{6}[0-9]{2}[A-Z][0-9]{2}[A-Z][0-9]{3}[A-Z]/);
+      if (cfFromRaw) parsed.codice_fiscale = cfFromRaw[0];
+    }
+    return parsed;
   } catch {
     console.error("AI JSON parse failed:", cleaned.slice(0, 200));
     return null;
@@ -458,18 +464,6 @@ export const syncGmailRicette = createServerFn({ method: "POST" })
               .single();
             if (cErr) console.error("Create assistito failed", cErr.message);
             assistitoId = created?.id ?? null;
-          }
-        }
-
-        if (!assistitoId && (extracted.nome || extracted.cognome)) {
-          const { data: assistitiByName } = await supabase
-            .from("assistiti")
-            .select("id, nome, cognome")
-            .ilike("nome", extracted.nome ?? "")
-            .ilike("cognome", extracted.cognome ?? "")
-            .limit(2);
-          if ((assistitiByName ?? []).length === 1) {
-            assistitoId = assistitiByName![0].id;
           }
         }
 
