@@ -1,15 +1,14 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { getMyFarmacia } from "@/lib/farmacie.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Pill, Loader2, Clock, LogOut, ShieldCheck } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
 
 export function FarmaciaGate({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
   const fetchFn = useServerFn(getMyFarmacia);
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["my-farmacia"],
@@ -36,14 +35,24 @@ export function FarmaciaGate({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Super admin senza farmacia → vai diretto al pannello admin
+  // Super admin: non deve essere bloccato dal requisito di una farmacia associata.
   if (data.isSuperAdmin && !data.farmacia) {
+    const isAdminSurface = location.pathname === "/" || location.pathname.startsWith("/admin/");
+    if (isAdminSurface) return <>{children}</>;
+
     return (
       <CenteredCard
         icon={<ShieldCheck className="size-7 text-accent" />}
         title="Pannello super-amministratore"
-        description="Sei loggato come super-amministratore senza una farmacia associata."
-        action={<Link to="/"><Button>Vai al pannello farmacie</Button></Link>}
+        description="Questa sezione è riservata agli operatori farmacia."
+        action={
+          <div className="flex flex-col sm:flex-row justify-center gap-2">
+            <Button asChild>
+              <Link to="/">Vai al pannello farmacie</Link>
+            </Button>
+            <SignOutBtn />
+          </div>
+        }
       />
     );
   }
@@ -86,10 +95,17 @@ export function FarmaciaGate({ children }: { children: React.ReactNode }) {
 }
 
 function CenteredCard({
-  icon, title, description, meta, action,
+  icon,
+  title,
+  description,
+  meta,
+  action,
 }: {
-  icon: React.ReactNode; title: string; description: string;
-  meta?: string; action: React.ReactNode;
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  meta?: string;
+  action: React.ReactNode;
 }) {
   return (
     <div className="min-h-screen grid place-items-center px-4 py-12">
@@ -120,7 +136,8 @@ function SignOutBtn() {
   };
   return (
     <Button variant="outline" onClick={signOut}>
-      <LogOut className="size-4 mr-2" />Esci
+      <LogOut className="size-4 mr-2" />
+      Esci
     </Button>
   );
 }
