@@ -12,6 +12,7 @@ import { it } from "date-fns/locale";
 import { syncGmailRicette, getRicettaAttachment, deleteRicettaEmail } from "@/lib/gmail.functions";
 import { toast } from "sonner";
 import { DebitiBadge } from "@/components/pharmacy/debiti-badge";
+import { AnticipiBadge } from "@/components/pharmacy/anticipi-badge";
 
 export const Route = createFileRoute("/_authenticated/")({
   head: () => ({ meta: [{ title: "Dashboard · Farmacia" }] }),
@@ -138,6 +139,9 @@ function Dashboard() {
               <div className="flex items-center gap-2 shrink-0">
                 {r.assistito_id && (
                   <DebitiBadge assistitoId={r.assistito_id} label={`${r.cognome ?? ""} ${r.nome ?? ""}`.trim()} />
+                )}
+                {r.assistito_id && (
+                  <AnticipiBadge assistitoId={r.assistito_id} label={`${r.cognome ?? ""} ${r.nome ?? ""}`.trim()} />
                 )}
                 <Badge variant={r.stato === "nuova" ? "default" : "secondary"}>{r.stato}</Badge>
                 <Button
