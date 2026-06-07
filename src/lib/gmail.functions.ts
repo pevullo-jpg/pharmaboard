@@ -141,6 +141,12 @@ function extractCfFromText(text: string | null | undefined): string | null {
   return m ? m[0] : null;
 }
 
+function uint8ToBase64(bytes: Uint8Array): string {
+  let bin = "";
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin);
+}
+
 export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { assistitoId: string }) => z.object({ assistitoId: z.string().uuid() }).parse(d))
