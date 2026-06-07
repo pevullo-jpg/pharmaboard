@@ -80,8 +80,6 @@ export const registerFarmacia = createServerFn({ method: "POST" })
         telefono: data.telefono ?? null,
         email_contatto: data.emailContatto ?? data.email,
         stato: "sospesa",
-        // L'alias viene rigenerato dal trigger BEFORE INSERT in base all'id.
-        alias_inbound: "",
       })
       .select("id")
       .single();
