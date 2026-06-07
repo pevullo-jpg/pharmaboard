@@ -101,6 +101,90 @@ export const deleteRicettaEmail = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
+// ---------- Merge all PDFs of an assistito ----------
+
+async function fetchFirstAttachmentBytes(emailId: string): Promise<{ bytes: Uint8Array; mimeType: string } | null> {
+  const msgRes = await fetch(`${GATEWAY_URL}/users/me/messages/${emailId}?format=full`, { headers: gmailHeaders() });
+  if (!msgRes.ok) return null;
+  const msg = (await msgRes.json()) as GmailMessage;
+  const atts = collectAttachmentParts(msg.payload?.parts);
+  if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType === "application/pdf" || msg.payload.mimeType.startsWith("image/"))) {
+    atts.push({ mimeType: msg.payload.mimeType, body: msg.payload.body });
+  }
+  const att = atts[0];
+  if (!att?.body?.attachmentId) return null;
+  const attRes = await fetch(`${GATEWAY_URL}/users/me/messages/${emailId}/attachments/${att.body.attachmentId}`, { headers: gmailHeaders() });
+  if (!attRes.ok) return null;
+  const j = (await attRes.json()) as { data?: string };
+  if (!j.data) return null;
+  const b64 = base64UrlToBase64(j.data);
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return { bytes, mimeType: att.mimeType ?? "application/octet-stream" };
+}
+
+export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: { assistitoId: string }) => z.object({ assistitoId: z.string().uuid() }).parse(d))
+  .handler(async ({ data, context }) => {
+    const { supabase } = context;
+    const { data: ricette, error } = await supabase
+      .from("ricette")
+      .select("id, source_email_id, data_ricetta, created_at")
+      .eq("assistito_id", data.assistitoId)
+      .not("source_email_id", "is", null)
+      .order("data_ricetta", { ascending: true, nullsFirst: false });
+    if (error) throw new Error(error.message);
+    if (!ricette || ricette.length === 0) throw new Error("Nessuna ricetta con allegato per questo assistito");
+
+    const { PDFDocument } = await import("pdf-lib");
+    const merged = await PDFDocument.create();
+    let added = 0;
+    const errors: string[] = [];
+
+    for (const r of ricette) {
+      if (!r.source_email_id) continue;
+      try {
+        const att = await fetchFirstAttachmentBytes(r.source_email_id);
+        if (!att) { errors.push(`Ricetta ${r.id}: allegato non trovato`); continue; }
+        if (att.mimeType === "application/pdf") {
+          const src = await PDFDocument.load(att.bytes, { ignoreEncryption: true });
+          const pages = await merged.copyPages(src, src.getPageIndices());
+          pages.forEach((p) => merged.addPage(p));
+          added++;
+        } else if (att.mimeType === "image/jpeg" || att.mimeType === "image/jpg") {
+          const img = await merged.embedJpg(att.bytes);
+          const page = merged.addPage([img.width, img.height]);
+          page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
+          added++;
+        } else if (att.mimeType === "image/png") {
+          const img = await merged.embedPng(att.bytes);
+          const page = merged.addPage([img.width, img.height]);
+          page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
+          added++;
+        } else {
+          errors.push(`Ricetta ${r.id}: tipo non supportato (${att.mimeType})`);
+        }
+      } catch (e) {
+        errors.push(`Ricetta ${r.id}: ${e instanceof Error ? e.message : "errore"}`);
+      }
+    }
+
+    if (added === 0) throw new Error(`Nessun PDF unito. ${errors.slice(0, 3).join(" | ")}`);
+
+    const bytes = await merged.save();
+    let bin = "";
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    const base64 = btoa(bin);
+    return {
+      dataUrl: `data:application/pdf;base64,${base64}`,
+      mergedCount: added,
+      skipped: ricette.length - added,
+      errors,
+    };
+  });
+
 // ---------- Sync ----------
 
 type GmailMessageMeta = { id: string; threadId: string };

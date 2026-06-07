@@ -10,9 +10,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ArrowLeft, Plus, FileText, CalendarClock, Wallet, Euro, Check, Trash2, ExternalLink, MailX, Loader2 } from "lucide-react";
+import { ArrowLeft, Plus, FileText, CalendarClock, Wallet, Euro, Check, Trash2, ExternalLink, MailX, Loader2, FileStack } from "lucide-react";
 import { toast } from "sonner";
-import { getRicettaAttachment, deleteRicettaEmail } from "@/lib/gmail.functions";
+import { getRicettaAttachment, deleteRicettaEmail, getAssistitoMergedPdf } from "@/lib/gmail.functions";
 import { format } from "date-fns";
 import { it } from "date-fns/locale";
 
@@ -26,6 +26,7 @@ function AssistitoDetail() {
   const qc = useQueryClient();
   const openAtt = useServerFn(getRicettaAttachment);
   const delEmail = useServerFn(deleteRicettaEmail);
+  const mergePdfs = useServerFn(getAssistitoMergedPdf);
 
   const openMutation = useMutation({
     mutationFn: async (ricettaId: string) => openAtt({ data: { ricettaId } }),
@@ -44,6 +45,17 @@ function AssistitoDetail() {
   const delEmailMutation = useMutation({
     mutationFn: async (ricettaId: string) => delEmail({ data: { ricettaId } }),
     onSuccess: () => { toast.success("Email cestinata e ricetta eliminata"); qc.invalidateQueries({ queryKey: ["ricette", id] }); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const mergeMutation = useMutation({
+    mutationFn: async () => mergePdfs({ data: { assistitoId: id } }),
+    onSuccess: (res) => {
+      const w = window.open("", "_blank");
+      if (!w) { toast.error("Popup bloccato. Consenti i popup."); return; }
+      w.document.write(`<iframe src="${res.dataUrl}" style="border:0;width:100%;height:100vh"></iframe>`);
+      toast.success(`Unite ${res.mergedCount} ricette${res.skipped ? ` (${res.skipped} saltate)` : ""}`);
+    },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -113,6 +125,17 @@ function AssistitoDetail() {
         </TabsList>
 
         <TabsContent value="ricette" className="space-y-3 mt-4">
+          {(ricette ?? []).some((r) => r.source_email_id) && (
+            <Button
+              variant="outline"
+              className="w-full gap-2"
+              disabled={mergeMutation.isPending}
+              onClick={() => mergeMutation.mutate()}
+            >
+              {mergeMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <FileStack className="size-4" />}
+              Unisci tutte le ricette in un PDF
+            </Button>
+          )}
           {(ricette ?? []).length === 0 && <EmptyState text="Nessuna ricetta" />}
           {(ricette ?? []).map((r) => (
             <Card key={r.id} className="glass-card p-4 flex items-center justify-between gap-3">
