@@ -161,6 +161,14 @@ function AssistitiPage() {
                   <DebitiBadge assistitoId={a.id} label={`${a.cognome} ${a.nome}`} />
                   <AnticipiBadge assistitoId={a.id} label={`${a.cognome} ${a.nome}`} />
                   {prenAttive > 0 && <Badge variant="secondary">{prenAttive} pren.</Badge>}
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteId(a.id); }}
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
                   <ChevronRight className="size-4 text-muted-foreground" />
                 </div>
               </Link>
