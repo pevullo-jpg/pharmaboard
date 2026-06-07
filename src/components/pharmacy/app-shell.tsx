@@ -8,10 +8,13 @@ import { useServerFn } from "@tanstack/react-start";
 import { getMyFarmacia } from "@/lib/farmacie.functions";
 
 type NavItem = { to: string; label: string; icon: typeof LayoutDashboard; exact?: boolean };
-const nav: NavItem[] = [
+const navStaff: NavItem[] = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, exact: true },
   { to: "/assistiti", label: "Assistiti", icon: Users },
   { to: "/impostazioni", label: "Anticipi", icon: Settings },
+];
+const navAdmin: NavItem[] = [
+  { to: "/", label: "Dashboard", icon: LayoutDashboard, exact: true },
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -26,6 +29,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   });
   const farmaciaName = ctx?.farmacia?.nome ?? "Farmacia";
   const isSuperAdmin = ctx?.isSuperAdmin ?? false;
+  const nav = isSuperAdmin ? navAdmin : navStaff;
 
   const handleSignOut = async () => {
     await qc.cancelQueries();
