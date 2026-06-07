@@ -405,13 +405,13 @@ export async function runHubSync(): Promise<{
   let skipped = 0;
   let unmatched = 0;
 
-  // Carica tutti gli alias farmacia per il routing.
+  // Carica le farmacie con email di inoltro registrata per il routing.
   const { data: farmacie } = await supabaseAdmin
     .from("farmacie")
-    .select("id, alias_inbound, stato");
-  const aliasMap = new Map<string, { id: string; stato: string }>();
+    .select("id, email_inoltro, stato");
+  const senderMap = new Map<string, { id: string; stato: string }>();
   for (const f of farmacie ?? []) {
-    if (f.alias_inbound) aliasMap.set(f.alias_inbound.toLowerCase(), { id: f.id, stato: f.stato });
+    if (f.email_inoltro) senderMap.set(f.email_inoltro.toLowerCase(), { id: f.id, stato: f.stato });
   }
 
   for (const m of messages) {
@@ -435,18 +435,45 @@ export async function runHubSync(): Promise<{
     const msg = (await msgRes.json()) as GmailMessage;
     processedMessages++;
 
-    // Routing per alias: cerca "+aliasXXXX@" in To/Delivered-To/Cc.
+    // Routing per mittente del forwarder: la farmacia inoltra dal proprio Gmail,
+    // Gmail aggiunge `X-Forwarded-For: <email-farmacia>` al messaggio inoltrato.
+    // Fallback su Return-Path / Sender / From per i casi edge.
     const headers = msg.payload?.headers ?? [];
-    const toHeader = headers.find((h) => ["to", "delivered-to", "x-original-to", "cc"].includes(h.name.toLowerCase()))?.value ?? "";
-    const allRecipients = headers
-      .filter((h) => ["to", "delivered-to", "x-original-to", "cc"].includes(h.name.toLowerCase()))
-      .map((h) => h.value)
-      .join(",");
-    const aliasMatch = allRecipients.match(/\+([a-z0-9_-]+)@/i);
-    const alias = aliasMatch ? aliasMatch[1].toLowerCase() : null;
-    const target = alias ? aliasMap.get(alias) : undefined;
+    const headerVal = (name: string) =>
+      headers.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? "";
+    function extractEmail(raw: string): string | null {
+      if (!raw) return null;
+      const m = raw.match(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/);
+      return m ? m[0].toLowerCase() : null;
+    }
+    const senderCandidates = [
+      extractEmail(headerVal("X-Forwarded-For")),
+      extractEmail(headerVal("Return-Path")),
+      extractEmail(headerVal("Sender")),
+      extractEmail(headerVal("From")),
+    ].filter((x): x is string => !!x);
+    const subject = headerVal("Subject");
+    const dateHeader = headerVal("Date");
+    const receivedAt = dateHeader ? new Date(dateHeader).toISOString() : null;
+    const primarySender = senderCandidates[0] ?? null;
+
+    let target: { id: string; stato: string } | undefined;
+    for (const cand of senderCandidates) {
+      const hit = senderMap.get(cand);
+      if (hit) { target = hit; break; }
+    }
+
     if (!target) {
-      console.warn("Hub sync: nessun alias farmacia per", toHeader);
+      // Mittente sconosciuto: registra come pending per assegnazione manuale.
+      await supabaseAdmin.from("inbound_pending").upsert({
+        source_email_id: m.id,
+        from_email: extractEmail(headerVal("From")),
+        forwarded_for: extractEmail(headerVal("X-Forwarded-For")) ?? primarySender,
+        subject,
+        snippet: msg.snippet ?? null,
+        received_at: receivedAt,
+        stato: "in_attesa",
+      }, { onConflict: "source_email_id" });
       unmatched++;
       continue;
     }
@@ -457,7 +484,6 @@ export async function runHubSync(): Promise<{
     }
     const farmaciaId = target.id;
 
-    const subject = headers.find((h) => h.name.toLowerCase() === "subject")?.value ?? "";
     const attachments = collectAttachmentParts(msg.payload?.parts);
     if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType === "application/pdf" || msg.payload.mimeType.startsWith("image/"))) {
       attachments.push({ mimeType: msg.payload.mimeType, body: msg.payload.body, filename: subject });
