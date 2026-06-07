@@ -176,6 +176,27 @@ function AssistitiPage() {
           })}
         </div>
       </Card>
+
+      <AlertDialog open={!!deleteId} onOpenChange={(open) => { if (!open) setDeleteId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Eliminare l'assistito?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Questa azione cancellerà l'assistito e tutti i dati associati (debiti, anticipi, prenotazioni, ricette). Non è annullabile.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annulla</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => { if (deleteId) remove.mutate(deleteId); }}
+              disabled={remove.isPending}
+            >
+              {remove.isPending ? <Loader2 className="size-4 animate-spin" /> : "Elimina"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
