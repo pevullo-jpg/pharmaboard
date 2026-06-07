@@ -18,6 +18,7 @@ import { Route as AuthenticatedAssistitiRouteImport } from './routes/_authentica
 import { Route as AuthenticatedImpostazioniInoltroEmailRouteImport } from './routes/_authenticated/impostazioni_.inoltro-email'
 import { Route as AuthenticatedAssistitiIdRouteImport } from './routes/_authenticated/assistiti.$id'
 import { Route as AuthenticatedAdminFarmacieRouteImport } from './routes/_authenticated/admin.farmacie'
+import { Route as ApiPublicHooksSyncInboundHubRouteImport } from './routes/api/public/hooks/sync-inbound-hub'
 
 const RegistraFarmaciaRoute = RegistraFarmaciaRouteImport.update({
   id: '/registra-farmacia',
@@ -67,6 +68,12 @@ const AuthenticatedAdminFarmacieRoute =
     path: '/admin/farmacie',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const ApiPublicHooksSyncInboundHubRoute =
+  ApiPublicHooksSyncInboundHubRouteImport.update({
+    id: '/api/public/hooks/sync-inbound-hub',
+    path: '/api/public/hooks/sync-inbound-hub',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
@@ -77,6 +84,7 @@ export interface FileRoutesByFullPath {
   '/admin/farmacie': typeof AuthenticatedAdminFarmacieRoute
   '/assistiti/$id': typeof AuthenticatedAssistitiIdRoute
   '/impostazioni/inoltro-email': typeof AuthenticatedImpostazioniInoltroEmailRoute
+  '/api/public/hooks/sync-inbound-hub': typeof ApiPublicHooksSyncInboundHubRoute
 }
 export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
@@ -87,6 +95,7 @@ export interface FileRoutesByTo {
   '/admin/farmacie': typeof AuthenticatedAdminFarmacieRoute
   '/assistiti/$id': typeof AuthenticatedAssistitiIdRoute
   '/impostazioni/inoltro-email': typeof AuthenticatedImpostazioniInoltroEmailRoute
+  '/api/public/hooks/sync-inbound-hub': typeof ApiPublicHooksSyncInboundHubRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -99,6 +108,7 @@ export interface FileRoutesById {
   '/_authenticated/admin/farmacie': typeof AuthenticatedAdminFarmacieRoute
   '/_authenticated/assistiti/$id': typeof AuthenticatedAssistitiIdRoute
   '/_authenticated/impostazioni_/inoltro-email': typeof AuthenticatedImpostazioniInoltroEmailRoute
+  '/api/public/hooks/sync-inbound-hub': typeof ApiPublicHooksSyncInboundHubRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -111,6 +121,7 @@ export interface FileRouteTypes {
     | '/admin/farmacie'
     | '/assistiti/$id'
     | '/impostazioni/inoltro-email'
+    | '/api/public/hooks/sync-inbound-hub'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/auth'
@@ -121,6 +132,7 @@ export interface FileRouteTypes {
     | '/admin/farmacie'
     | '/assistiti/$id'
     | '/impostazioni/inoltro-email'
+    | '/api/public/hooks/sync-inbound-hub'
   id:
     | '__root__'
     | '/_authenticated'
@@ -132,12 +144,14 @@ export interface FileRouteTypes {
     | '/_authenticated/admin/farmacie'
     | '/_authenticated/assistiti/$id'
     | '/_authenticated/impostazioni_/inoltro-email'
+    | '/api/public/hooks/sync-inbound-hub'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   RegistraFarmaciaRoute: typeof RegistraFarmaciaRoute
+  ApiPublicHooksSyncInboundHubRoute: typeof ApiPublicHooksSyncInboundHubRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -205,6 +219,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminFarmacieRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/api/public/hooks/sync-inbound-hub': {
+      id: '/api/public/hooks/sync-inbound-hub'
+      path: '/api/public/hooks/sync-inbound-hub'
+      fullPath: '/api/public/hooks/sync-inbound-hub'
+      preLoaderRoute: typeof ApiPublicHooksSyncInboundHubRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -246,6 +267,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   RegistraFarmaciaRoute: RegistraFarmaciaRoute,
+  ApiPublicHooksSyncInboundHubRoute: ApiPublicHooksSyncInboundHubRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
