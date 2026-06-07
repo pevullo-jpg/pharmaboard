@@ -129,13 +129,51 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
   .inputValidator((d: { assistitoId: string }) => z.object({ assistitoId: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }) => {
     const { supabase } = context;
-    const { data: ricette, error } = await supabase
+    // Load assistito to also catch orphan ricette (assistito_id NULL but same nome+cognome or CF)
+    const { data: ass, error: aErr } = await supabase
+      .from("assistiti")
+      .select("id, nome, cognome, codice_fiscale")
+      .eq("id", data.assistitoId)
+      .maybeSingle();
+    if (aErr) throw new Error(aErr.message);
+    if (!ass) throw new Error("Assistito non trovato");
+
+    // Linked ricette
+    const { data: linked, error: lErr } = await supabase
       .from("ricette")
       .select("id, source_email_id, data_ricetta, created_at")
       .eq("assistito_id", data.assistitoId)
-      .not("source_email_id", "is", null)
-      .order("data_ricetta", { ascending: true, nullsFirst: false });
-    if (error) throw new Error(error.message);
+      .not("source_email_id", "is", null);
+    if (lErr) throw new Error(lErr.message);
+
+    // Orphan ricette matching by CF or nome+cognome
+    let orphanQuery = supabase
+      .from("ricette")
+      .select("id, source_email_id, data_ricetta, created_at, nome, cognome, codice_fiscale")
+      .is("assistito_id", null)
+      .not("source_email_id", "is", null);
+    const orFilters: string[] = [];
+    if (ass.codice_fiscale) orFilters.push(`codice_fiscale.eq.${ass.codice_fiscale}`);
+    if (ass.nome && ass.cognome) {
+      orFilters.push(`and(nome.ilike.${ass.nome},cognome.ilike.${ass.cognome})`);
+    }
+    const orphans: typeof linked = [];
+    if (orFilters.length > 0) {
+      const { data: o, error: oErr } = await orphanQuery.or(orFilters.join(","));
+      if (oErr) throw new Error(oErr.message);
+      // Re-link these to the assistito so future merges include them naturally
+      const ids = (o ?? []).map((r) => r.id);
+      if (ids.length > 0) {
+        await supabase.from("ricette").update({ assistito_id: data.assistitoId }).in("id", ids);
+      }
+      for (const r of o ?? []) orphans.push({ id: r.id, source_email_id: r.source_email_id, data_ricetta: r.data_ricetta, created_at: r.created_at });
+    }
+
+    const ricette = [...(linked ?? []), ...orphans].sort((a, b) => {
+      const da = a.data_ricetta ?? a.created_at ?? "";
+      const db = b.data_ricetta ?? b.created_at ?? "";
+      return da.localeCompare(db);
+    });
     if (!ricette || ricette.length === 0) throw new Error("Nessuna ricetta con allegato per questo assistito");
 
     const { PDFDocument } = await import("pdf-lib");
