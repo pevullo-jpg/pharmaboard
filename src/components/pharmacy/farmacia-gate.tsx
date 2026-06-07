@@ -125,6 +125,7 @@ function CenteredCard({
   );
 }
 
+
 function SignOutBtn() {
   const navigate = useNavigate();
   const qc = useQueryClient();
