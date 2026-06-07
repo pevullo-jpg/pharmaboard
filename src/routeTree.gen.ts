@@ -11,6 +11,10 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
+import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
+import { Route as AuthenticatedImpostazioniRouteImport } from './routes/_authenticated/impostazioni'
+import { Route as AuthenticatedAssistitiRouteImport } from './routes/_authenticated/assistiti'
+import { Route as AuthenticatedAssistitiIdRouteImport } from './routes/_authenticated/assistiti.$id'
 
 const AuthRoute = AuthRouteImport.update({
   id: '/auth',
@@ -21,30 +25,69 @@ const AuthenticatedRouteRoute = AuthenticatedRouteRouteImport.update({
   id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedImpostazioniRoute =
+  AuthenticatedImpostazioniRouteImport.update({
+    id: '/impostazioni',
+    path: '/impostazioni',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedAssistitiRoute = AuthenticatedAssistitiRouteImport.update({
+  id: '/assistiti',
+  path: '/assistiti',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedAssistitiIdRoute =
+  AuthenticatedAssistitiIdRouteImport.update({
+    id: '/$id',
+    path: '/$id',
+    getParentRoute: () => AuthenticatedAssistitiRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof AuthenticatedRouteRoute
+  '/': typeof AuthenticatedIndexRoute
   '/auth': typeof AuthRoute
+  '/assistiti': typeof AuthenticatedAssistitiRouteWithChildren
+  '/impostazioni': typeof AuthenticatedImpostazioniRoute
+  '/assistiti/$id': typeof AuthenticatedAssistitiIdRoute
 }
 export interface FileRoutesByTo {
-  '/': typeof AuthenticatedRouteRoute
   '/auth': typeof AuthRoute
+  '/assistiti': typeof AuthenticatedAssistitiRouteWithChildren
+  '/impostazioni': typeof AuthenticatedImpostazioniRoute
+  '/': typeof AuthenticatedIndexRoute
+  '/assistiti/$id': typeof AuthenticatedAssistitiIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/_authenticated': typeof AuthenticatedRouteRoute
+  '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
+  '/_authenticated/assistiti': typeof AuthenticatedAssistitiRouteWithChildren
+  '/_authenticated/impostazioni': typeof AuthenticatedImpostazioniRoute
+  '/_authenticated/': typeof AuthenticatedIndexRoute
+  '/_authenticated/assistiti/$id': typeof AuthenticatedAssistitiIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth'
+  fullPaths: '/' | '/auth' | '/assistiti' | '/impostazioni' | '/assistiti/$id'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth'
-  id: '__root__' | '/_authenticated' | '/auth'
+  to: '/auth' | '/assistiti' | '/impostazioni' | '/' | '/assistiti/$id'
+  id:
+    | '__root__'
+    | '/_authenticated'
+    | '/auth'
+    | '/_authenticated/assistiti'
+    | '/_authenticated/impostazioni'
+    | '/_authenticated/'
+    | '/_authenticated/assistiti/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  AuthenticatedRouteRoute: typeof AuthenticatedRouteRoute
+  AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
 }
 
@@ -64,11 +107,68 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRouteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/': {
+      id: '/_authenticated/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/impostazioni': {
+      id: '/_authenticated/impostazioni'
+      path: '/impostazioni'
+      fullPath: '/impostazioni'
+      preLoaderRoute: typeof AuthenticatedImpostazioniRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/assistiti': {
+      id: '/_authenticated/assistiti'
+      path: '/assistiti'
+      fullPath: '/assistiti'
+      preLoaderRoute: typeof AuthenticatedAssistitiRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/assistiti/$id': {
+      id: '/_authenticated/assistiti/$id'
+      path: '/$id'
+      fullPath: '/assistiti/$id'
+      preLoaderRoute: typeof AuthenticatedAssistitiIdRouteImport
+      parentRoute: typeof AuthenticatedAssistitiRoute
+    }
   }
 }
 
+interface AuthenticatedAssistitiRouteChildren {
+  AuthenticatedAssistitiIdRoute: typeof AuthenticatedAssistitiIdRoute
+}
+
+const AuthenticatedAssistitiRouteChildren: AuthenticatedAssistitiRouteChildren =
+  {
+    AuthenticatedAssistitiIdRoute: AuthenticatedAssistitiIdRoute,
+  }
+
+const AuthenticatedAssistitiRouteWithChildren =
+  AuthenticatedAssistitiRoute._addFileChildren(
+    AuthenticatedAssistitiRouteChildren,
+  )
+
+interface AuthenticatedRouteRouteChildren {
+  AuthenticatedAssistitiRoute: typeof AuthenticatedAssistitiRouteWithChildren
+  AuthenticatedImpostazioniRoute: typeof AuthenticatedImpostazioniRoute
+  AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
+}
+
+const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
+  AuthenticatedAssistitiRoute: AuthenticatedAssistitiRouteWithChildren,
+  AuthenticatedImpostazioniRoute: AuthenticatedImpostazioniRoute,
+  AuthenticatedIndexRoute: AuthenticatedIndexRoute,
+}
+
+const AuthenticatedRouteRouteWithChildren =
+  AuthenticatedRouteRoute._addFileChildren(AuthenticatedRouteRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
-  AuthenticatedRouteRoute: AuthenticatedRouteRoute,
+  AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
 }
 export const routeTree = rootRouteImport
