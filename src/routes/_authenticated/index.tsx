@@ -21,7 +21,7 @@ function Dashboard() {
   const qc = useQueryClient();
   const sync = useServerFn(syncGmailRicette);
   const syncMutation = useMutation({
-    mutationFn: async () => sync({}),
+    mutationFn: async () => sync(),
     onSuccess: (r) => {
       toast.success(`Sync completata: ${r.importedRicette} nuove ricette su ${r.checked} email`);
       qc.invalidateQueries({ queryKey: ["dashboard-stats"] });

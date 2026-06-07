@@ -58,7 +58,7 @@ function ImpostazioniPage() {
 
   const disconnectMutation = useMutation({
     mutationFn: async () => {
-      await disconnect({});
+      await disconnect();
     },
     onSuccess: () => {
       toast.success("Gmail scollegato");
