@@ -1,9 +1,11 @@
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import { LayoutDashboard, Users, Settings, LogOut, Pill } from "lucide-react";
+import { LayoutDashboard, Users, Settings, LogOut, Pill, ShieldCheck } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
+import { getMyFarmacia } from "@/lib/farmacie.functions";
 
 type NavItem = { to: string; label: string; icon: typeof LayoutDashboard; exact?: boolean };
 const nav: NavItem[] = [
@@ -16,6 +18,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const fetchFarm = useServerFn(getMyFarmacia);
+  const { data: ctx } = useQuery({
+    queryKey: ["my-farmacia"],
+    queryFn: () => fetchFarm(),
+    staleTime: 30_000,
+  });
+  const farmaciaName = ctx?.farmacia?.nome ?? "Farmacia";
+  const isSuperAdmin = ctx?.isSuperAdmin ?? false;
 
   const handleSignOut = async () => {
     await qc.cancelQueries();
@@ -31,8 +41,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="size-10 rounded-xl bg-gradient-to-br from-primary to-accent grid place-items-center accent-glow">
             <Pill className="size-5 text-primary-foreground" />
           </div>
-          <div>
-            <div className="font-semibold tracking-tight">Farmacia</div>
+          <div className="min-w-0">
+            <div className="font-semibold tracking-tight truncate" title={farmaciaName}>{farmaciaName}</div>
             <div className="text-xs text-muted-foreground">Dashboard</div>
           </div>
         </div>
@@ -56,6 +66,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </Link>
             );
           })}
+          {isSuperAdmin && (
+            <Link
+              to="/admin/farmacie"
+              className={cn(
+                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all mt-4 border-t border-border/40 pt-4",
+                location.pathname.startsWith("/admin")
+                  ? "bg-accent/15 text-accent border border-accent/30 accent-glow"
+                  : "text-muted-foreground hover:text-foreground hover:bg-sidebar-accent/60",
+              )}
+            >
+              <ShieldCheck className="size-4" />
+              Admin Farmacie
+            </Link>
+          )}
         </nav>
         <div className="p-3 border-t border-border/60">
           <Button variant="ghost" size="sm" className="w-full justify-start gap-2 text-muted-foreground" onClick={handleSignOut}>

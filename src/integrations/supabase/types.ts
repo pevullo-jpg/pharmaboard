@@ -19,6 +19,7 @@ export type Database = {
           assistito_id: string
           created_at: string
           data_anticipo: string
+          farmacia_id: string
           farmaco: string
           id: string
           note: string | null
@@ -30,6 +31,7 @@ export type Database = {
           assistito_id: string
           created_at?: string
           data_anticipo?: string
+          farmacia_id?: string
           farmaco: string
           id?: string
           note?: string | null
@@ -41,6 +43,7 @@ export type Database = {
           assistito_id?: string
           created_at?: string
           data_anticipo?: string
+          farmacia_id?: string
           farmaco?: string
           id?: string
           note?: string | null
@@ -56,7 +59,35 @@ export type Database = {
             referencedRelation: "assistiti"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "anticipi_farmacia_fk"
+            columns: ["farmacia_id"]
+            isOneToOne: false
+            referencedRelation: "farmacie"
+            referencedColumns: ["id"]
+          },
         ]
+      }
+      app_roles: {
+        Row: {
+          created_at: string
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
       }
       assistiti: {
         Row: {
@@ -64,6 +95,7 @@ export type Database = {
           cognome: string
           created_at: string
           esenzione: string | null
+          farmacia_id: string
           id: string
           medico: string | null
           nome: string
@@ -76,6 +108,7 @@ export type Database = {
           cognome: string
           created_at?: string
           esenzione?: string | null
+          farmacia_id?: string
           id?: string
           medico?: string | null
           nome: string
@@ -88,6 +121,7 @@ export type Database = {
           cognome?: string
           created_at?: string
           esenzione?: string | null
+          farmacia_id?: string
           id?: string
           medico?: string | null
           nome?: string
@@ -95,7 +129,15 @@ export type Database = {
           telefono?: string | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "assistiti_farmacia_fk"
+            columns: ["farmacia_id"]
+            isOneToOne: false
+            referencedRelation: "farmacie"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       debiti: {
         Row: {
@@ -103,6 +145,7 @@ export type Database = {
           created_at: string
           data_debito: string
           descrizione: string | null
+          farmacia_id: string
           id: string
           importo: number
           stato: string
@@ -113,6 +156,7 @@ export type Database = {
           created_at?: string
           data_debito?: string
           descrizione?: string | null
+          farmacia_id?: string
           id?: string
           importo: number
           stato?: string
@@ -123,6 +167,7 @@ export type Database = {
           created_at?: string
           data_debito?: string
           descrizione?: string | null
+          farmacia_id?: string
           id?: string
           importo?: number
           stato?: string
@@ -136,13 +181,110 @@ export type Database = {
             referencedRelation: "assistiti"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "debiti_farmacia_fk"
+            columns: ["farmacia_id"]
+            isOneToOne: false
+            referencedRelation: "farmacie"
+            referencedColumns: ["id"]
+          },
         ]
+      }
+      farmacia_members: {
+        Row: {
+          created_at: string
+          farmacia_id: string
+          id: string
+          ruolo: Database["public"]["Enums"]["farmacia_role"]
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          farmacia_id: string
+          id?: string
+          ruolo?: Database["public"]["Enums"]["farmacia_role"]
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          farmacia_id?: string
+          id?: string
+          ruolo?: Database["public"]["Enums"]["farmacia_role"]
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "farmacia_members_farmacia_id_fkey"
+            columns: ["farmacia_id"]
+            isOneToOne: false
+            referencedRelation: "farmacie"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      farmacie: {
+        Row: {
+          attivata_at: string | null
+          cap: string | null
+          citta: string | null
+          created_at: string
+          email_contatto: string | null
+          gmail_connection_id: string | null
+          id: string
+          indirizzo: string | null
+          nome: string
+          note_admin: string | null
+          partita_iva: string | null
+          ragione_sociale: string | null
+          sospesa_at: string | null
+          stato: Database["public"]["Enums"]["farmacia_stato"]
+          telefono: string | null
+          updated_at: string
+        }
+        Insert: {
+          attivata_at?: string | null
+          cap?: string | null
+          citta?: string | null
+          created_at?: string
+          email_contatto?: string | null
+          gmail_connection_id?: string | null
+          id?: string
+          indirizzo?: string | null
+          nome: string
+          note_admin?: string | null
+          partita_iva?: string | null
+          ragione_sociale?: string | null
+          sospesa_at?: string | null
+          stato?: Database["public"]["Enums"]["farmacia_stato"]
+          telefono?: string | null
+          updated_at?: string
+        }
+        Update: {
+          attivata_at?: string | null
+          cap?: string | null
+          citta?: string | null
+          created_at?: string
+          email_contatto?: string | null
+          gmail_connection_id?: string | null
+          id?: string
+          indirizzo?: string | null
+          nome?: string
+          note_admin?: string | null
+          partita_iva?: string | null
+          ragione_sociale?: string | null
+          sospesa_at?: string | null
+          stato?: Database["public"]["Enums"]["farmacia_stato"]
+          telefono?: string | null
+          updated_at?: string
+        }
+        Relationships: []
       }
       prenotazioni: {
         Row: {
           assistito_id: string
           created_at: string
           data_prenotazione: string
+          farmacia_id: string
           farmaco: string
           id: string
           note: string | null
@@ -154,6 +296,7 @@ export type Database = {
           assistito_id: string
           created_at?: string
           data_prenotazione?: string
+          farmacia_id?: string
           farmaco: string
           id?: string
           note?: string | null
@@ -165,6 +308,7 @@ export type Database = {
           assistito_id?: string
           created_at?: string
           data_prenotazione?: string
+          farmacia_id?: string
           farmaco?: string
           id?: string
           note?: string | null
@@ -178,6 +322,13 @@ export type Database = {
             columns: ["assistito_id"]
             isOneToOne: false
             referencedRelation: "assistiti"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "prenotazioni_farmacia_fk"
+            columns: ["farmacia_id"]
+            isOneToOne: false
+            referencedRelation: "farmacie"
             referencedColumns: ["id"]
           },
         ]
@@ -215,6 +366,7 @@ export type Database = {
           data_ricetta: string | null
           dpc: boolean
           esenzione: string | null
+          farmacia_id: string
           id: string
           is_dpc_alert: boolean
           medico: string | null
@@ -236,6 +388,7 @@ export type Database = {
           data_ricetta?: string | null
           dpc?: boolean
           esenzione?: string | null
+          farmacia_id?: string
           id?: string
           is_dpc_alert?: boolean
           medico?: string | null
@@ -257,6 +410,7 @@ export type Database = {
           data_ricetta?: string | null
           dpc?: boolean
           esenzione?: string | null
+          farmacia_id?: string
           id?: string
           is_dpc_alert?: boolean
           medico?: string | null
@@ -278,6 +432,13 @@ export type Database = {
             referencedRelation: "assistiti"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "ricette_farmacia_fk"
+            columns: ["farmacia_id"]
+            isOneToOne: false
+            referencedRelation: "farmacie"
+            referencedColumns: ["id"]
+          },
         ]
       }
     }
@@ -285,10 +446,14 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      current_farmacia_id: { Args: { _uid: string }; Returns: string }
+      is_farmacia_attiva: { Args: { _farmacia_id: string }; Returns: boolean }
+      is_super_admin: { Args: { _uid: string }; Returns: boolean }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "super_admin"
+      farmacia_role: "owner" | "staff"
+      farmacia_stato: "attiva" | "sospesa" | "disattivata"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -415,6 +580,10 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["super_admin"],
+      farmacia_role: ["owner", "staff"],
+      farmacia_stato: ["attiva", "sospesa", "disattivata"],
+    },
   },
 } as const

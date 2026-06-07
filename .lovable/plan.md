@@ -1,53 +1,97 @@
 ## Obiettivo
-Costruire una dashboard farmacia per gestire assistiti, debiti, farmaci anticipati/prenotati e ricette, con import automatico da Gmail (PDF + immagini) e parsing AI dei dati ricetta.
 
-## Stack & infrastruttura
-- **Lovable Cloud** abilitato (auth + Postgres + RLS).
-- **Auth**: email/password (multi-operatore farmacia).
-- **Gmail per-utente**: App User Connector (`google_mail`) — ogni operatore collega il proprio Gmail con flusso OAuth popup.
-- **Parsing ricette**: Lovable AI Gateway (Gemini 2.5 multimodale) — gestisce sia PDF che immagini scan/foto in un'unica chiamata.
-- **UI**: TanStack Start + shadcn, palette **Ocean Deep dark** (#0c2340 base, #1a4a6e surface, #2d8a9e primary, #5cbdb9 accent), font Inter/Sora, card glassmorphism con bordi sottili e glow tenue sull'accent teal.
+Trasformare l'app in un sistema multi-tenant dove ogni farmacia ha un proprio account, vede solo i propri dati, e l'attivazione/disattivazione è gestita da un super-admin.
 
-## Schema database (public)
-- `profiles` — id (FK auth.users), nome, ruolo, gmail_connection_id (per-utente).
-- `assistiti` — id, nome, cognome, codice_fiscale (unique), medico, esenzione, telefono, note, created_at.
-- `ricette` — id, assistito_id (nullable se non matchato), data_ricetta, medico, esenzione, dpc (bool), is_dpc_alert (bool), numero_ricetta, raw_text, source_email_id, pdf_url (storage), stato (nuova/lavorata), created_at.
-- `prenotazioni` — id, assistito_id, farmaco, quantità, stato (in_attesa/pronto/consegnato), data, note.
-- `anticipi` — id, assistito_id, farmaco, quantità, data, stato (aperto/saldato).
-- `debiti` — id, assistito_id, importo, descrizione, stato (aperto/saldato), data.
-- Bucket Storage `ricette-pdf` (privato).
-- RLS: tutti gli operatori autenticati leggono/scrivono i dati farmacia (single-tenant). `profiles` ognuno il proprio. `gmail_connection_id` solo proprietario.
+## Modello dati
 
-## Pagine
-1. **`/auth`** — login/signup email+password.
-2. **`/` (dashboard)** — 4 card riepilogo (Prenotazioni attive, Ricette nuove, DPC da evidenziare, Debiti aperti totali €), tabella ultime ricette importate, pulsante "Sincronizza Gmail".
-3. **`/assistiti`** — elenco con ricerca per nome/CF, badge stato (debiti/anticipi/prenotazioni).
-4. **`/assistiti/$id`** — dettaglio: anagrafica + 4 tab (Ricette, Prenotazioni, Anticipi, Debiti) con CRUD.
-5. **`/impostazioni`** — collegamento Gmail (pulsante "Connetti il mio Gmail"), stato connessione, scollega.
+Introduciamo il concetto di **farmacia** (tenant) e leghiamo tutti i dati operativi a un `farmacia_id`. Gli utenti vengono associati a una farmacia tramite una tabella di membership; i ruoli (super_admin, pharmacy_owner, pharmacy_staff) vivono in una tabella separata per evitare escalation di privilegi.
 
-## Flusso Gmail → ricette
-1. Operatore connette Gmail in Impostazioni (popup OAuth, scope `gmail.readonly`). Salviamo `connection_id` su `profiles`.
-2. Server fn `syncRicette`: chiama `users/me/messages?q=ricetta OR DPC ...` (filtri configurabili), scarica allegati PDF e immagini inline.
-3. Per ogni allegato → AI Gateway (Gemini multimodale): prompt strutturato che estrae `{nome, cognome, codice_fiscale, medico, esenzione, data, dpc_flag, numero_ricetta}` in JSON.
-4. Upload PDF su Storage, insert in `ricette`, match automatico per CF su `assistiti` (creazione assistito se nuovo, con flag da_confermare).
-5. Card dashboard si aggiornano (React Query invalidate).
+### Nuove tabelle
 
-## Componenti chiave
-- `StatCard` (icon, label, valore, trend).
-- `RicettaCard` con badge **DPC** ben visibile (accent teal lampeggiante se `is_dpc_alert`).
-- `GmailConnectButton` (usa `connectAppUser` helper).
-- `AssistitoQuickPanel` con tab.
+1. **`farmacie`** — anagrafica tenant
+   - `nome`, `ragione_sociale`, `partita_iva`, `indirizzo`, `citta`, `cap`, `telefono`, `email_contatto`
+   - `stato`: `attiva` | `sospesa` | `disattivata` (default: `sospesa`)
+   - `attivata_at`, `sospesa_at`, `note_admin`
+   - `gmail_connection_id` (la connessione Gmail diventa per-farmacia, non globale)
 
-## Sicurezza
-- Service role usato solo lato server (sync Gmail, AI parsing).
-- AI Gateway via `LOVABLE_API_KEY` server-side.
-- Validazione Zod su tutti gli input.
-- RLS attive, GRANT a `authenticated`.
+2. **`farmacia_members`** — associazione user ↔ farmacia
+   - `farmacia_id`, `user_id`, `ruolo_farmacia` (owner/staff)
+   - Una farmacia può avere più utenti; un utente appartiene a una sola farmacia (vincolo unique su user_id)
 
-## Cosa NON includo in questa prima passata
-- Notifiche SMS/email al cliente.
-- Stampa etichette/ricevute.
-- Storico/audit dettagliato.
-- Multi-farmacia (tenancy).
+3. **`app_roles`** — ruoli globali (enum: `super_admin`)
+   - `user_id`, `role`
+   - Usata solo per i super-admin della piattaforma; il ruolo nella farmacia sta in `farmacia_members`
 
-Possiamo aggiungerli dopo se servono.
+4. **Funzioni security definer**
+   - `is_super_admin(uid)` — controlla `app_roles`
+   - `current_farmacia_id(uid)` — ritorna la farmacia dell'utente da `farmacia_members`
+   - `is_farmacia_attiva(farmacia_id)` — controlla `stato = 'attiva'`
+
+### Modifiche tabelle esistenti
+
+Aggiungo `farmacia_id NOT NULL` a:
+- `assistiti`
+- `ricette`
+- `anticipi`
+- `debiti`
+- `prenotazioni`
+
+**Migrazione dati esistenti**: poiché siamo in fase di sviluppo e i dati attuali appartengono a una sola farmacia di test, creo una farmacia "Default" e assegno tutti i record esistenti ad essa (con valore di default temporaneo, poi rendo NOT NULL).
+
+### RLS
+
+Sostituisco le policy attuali (`USING (true)`) con policy basate su `farmacia_id = current_farmacia_id(auth.uid()) AND is_farmacia_attiva(farmacia_id)`. I super-admin hanno accesso completo via `is_super_admin(auth.uid())`.
+
+**Risultato:**
+- Una farmacia sospesa/disattivata → i suoi utenti non vedono più alcun dato (login funziona ma queries ritornano vuote)
+- Cross-tenant isolation garantita a livello database (non si può bucare via API)
+
+## Flusso di onboarding
+
+1. **Self-signup farmacia**: nuova pagina `/registra-farmacia` dove il titolare crea account + farmacia (stato iniziale `sospesa`)
+2. **Approvazione super-admin**: il super-admin vede in dashboard la lista farmacie pendenti e clicca "Attiva"
+3. **Login farmacia**: dopo l'attivazione, l'utente accede normalmente e vede solo i propri dati
+4. **Gestione Gmail**: la connessione Gmail diventa per-farmacia (campo `gmail_connection_id` su `farmacie`). Per ora resta la connessione globale del workspace Lovable (limite tecnico del connettore — vedi nota sotto)
+
+## Pannello super-admin
+
+Nuova route protetta `/_authenticated/admin/farmacie` (visibile solo se `is_super_admin`):
+- Tabella farmacie con stato, data registrazione, numero utenti, numero ricette
+- Azioni: Attiva, Sospendi, Disattiva, modifica anagrafica, note interne
+- Filtro per stato
+
+## UI dell'app
+
+- Header dell'app mostra il nome della farmacia corrente
+- Nuova voce "Farmacie" nel menu (solo super-admin)
+- Schermata "In attesa di attivazione" quando l'utente è loggato ma la sua farmacia è `sospesa`
+
+## Limite tecnico Gmail multi-farmacia
+
+Il connettore Gmail di Lovable autorizza **l'account Gmail del workspace builder**, non un Gmail per farmacia. Opzioni:
+
+**A. Una sola casella Gmail centralizzata** (più semplice, MVP): tutte le farmacie ricevono ricette su un'unica casella, e si discrimina per destinatario (es. `farmacia1@dominio.it`, `farmacia2@dominio.it` come alias). Il sync filtra per indirizzo destinatario e assegna il `farmacia_id` di conseguenza.
+
+**B. OAuth Google per-farmacia** (corretta a regime): ogni farmacia connette il proprio Gmail con OAuth Google standard. Richiede progetto Google Cloud, OAuth consent screen e gestione token per-farmacia in tabella dedicata. Lavoro extra significativo.
+
+**Proposta**: partire con A (1 settimana), passare a B quando l'app supera le ~5 farmacie reali.
+
+## Piano implementazione
+
+1. Migrazione DB: `farmacie`, `farmacia_members`, `app_roles`, security definer functions, `farmacia_id` su tabelle esistenti, nuove RLS
+2. Bootstrap: creare farmacia "Default" + assegnare l'utente attuale come super_admin + owner
+3. Server functions: `getCurrentFarmacia`, `listFarmacie` (admin), `attivaFarmacia`, `sospendiFarmacia`, `registraNuovaFarmacia`
+4. UI:
+   - Pagina `/registra-farmacia` (pubblica)
+   - Pagina "In attesa di attivazione"
+   - Pannello `/admin/farmacie` (super-admin)
+   - Badge farmacia nell'app shell
+5. Adeguare il sync Gmail con filtro destinatario e assegnazione `farmacia_id`
+6. Test isolamento: creare 2 farmacie e verificare che non si vedano i dati a vicenda
+
+## Domande di conferma
+
+1. **Modello Gmail**: confermi opzione A (casella centralizzata con alias per farmacia) per iniziare?
+2. **Multi-utente per farmacia**: una farmacia può avere più dipendenti che accedono, oppure un solo account per farmacia?
+3. **Self-signup o invito**: le farmacie si registrano da sole (e poi tu approvi) o tu le crei manualmente da super-admin e invii credenziali?
+4. **Super-admin iniziale**: confermi che il tuo utente attuale (quello con cui sei loggato adesso) debba diventare super_admin?
