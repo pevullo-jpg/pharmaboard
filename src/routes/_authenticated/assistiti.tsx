@@ -1,13 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { useServerFn } from "@tanstack/react-start";
+import { getAssistitoMergedPdf } from "@/lib/gmail.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
-import { Plus, Search, ChevronRight, UserPlus } from "lucide-react";
+import { Search, ChevronRight, UserPlus, FileStack, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 
@@ -20,6 +22,29 @@ function AssistitiPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
+  const mergePdfs = useServerFn(getAssistitoMergedPdf);
+  const [mergingId, setMergingId] = useState<string | null>(null);
+
+  const handleOpenRicette = async (e: React.MouseEvent, assistitoId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setMergingId(assistitoId);
+    try {
+      const res = await mergePdfs({ data: { assistitoId } });
+      const w = window.open("", "_blank");
+      if (!w) {
+        toast.error("Abilita i popup per visualizzare il PDF");
+        return;
+      }
+      w.document.write(`<iframe src="${res.dataUrl}" style="border:0;width:100vw;height:100vh"></iframe>`);
+      w.document.close();
+      toast.success(`${res.mergedCount} ricette unite${res.skipped ? ` (${res.skipped} saltate)` : ""}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Errore");
+    } finally {
+      setMergingId(null);
+    }
+  };
 
   const { data, isLoading } = useQuery({
     queryKey: ["assistiti", search],
@@ -94,6 +119,16 @@ function AssistitiPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={(e) => handleOpenRicette(e, a.id)}
+                    disabled={mergingId === a.id}
+                    className="gap-1"
+                  >
+                    {mergingId === a.id ? <Loader2 className="size-3.5 animate-spin" /> : <FileStack className="size-3.5" />}
+                    Ricette
+                  </Button>
                   {prenAttive > 0 && <Badge variant="secondary">{prenAttive} pren.</Badge>}
                   {anticipiAperti > 0 && <Badge variant="outline">{anticipiAperti} ant.</Badge>}
                   {debitiAperti > 0 && <Badge className="bg-destructive/20 text-destructive border border-destructive/40">{new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(debitiAperti)}</Badge>}
