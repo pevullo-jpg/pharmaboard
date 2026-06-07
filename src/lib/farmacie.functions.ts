@@ -152,10 +152,16 @@ export const setFarmaciaStato = createServerFn({ method: "POST" })
     if (!admin) throw new Error("Accesso negato");
 
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const patch: Record<string, unknown> = { stato: data.stato };
-    if (data.note !== undefined) patch.note_admin = data.note;
-    if (data.stato === "attiva") patch.attivata_at = new Date().toISOString();
-    if (data.stato === "sospesa" || data.stato === "disattivata") patch.sospesa_at = new Date().toISOString();
+    const now = new Date().toISOString();
+    const patch: {
+      stato: "attiva" | "sospesa" | "disattivata";
+      note_admin?: string | null;
+      attivata_at?: string;
+      sospesa_at?: string;
+    } = { stato: data.stato };
+    if (data.note !== undefined && data.note !== null) patch.note_admin = data.note;
+    if (data.stato === "attiva") patch.attivata_at = now;
+    if (data.stato === "sospesa" || data.stato === "disattivata") patch.sospesa_at = now;
 
     const { error } = await supabaseAdmin.from("farmacie").update(patch).eq("id", data.farmaciaId);
     if (error) throw new Error(error.message);
