@@ -491,21 +491,36 @@ Restituisci SOLO un JSON puro, senza markdown, in questo formato:
 
 REGOLE CRITICHE per il codice_fiscale:
 - Sulla ricetta SSN ci sono spesso DUE codici fiscali: quello dell'ASSISTITO (in alto, sezione "Cognome e nome dell'assistito" / "Codice Fiscale Assistito") e quello del MEDICO (vicino alla firma / "Codice Fiscale Medico" / "Cod. Regionale"). DEVI restituire solo quello dell'ASSISTITO.
-- Le prime 6 lettere del CF dell'assistito devono essere coerenti con cognome+nome estratti (3 consonanti del cognome + 3 consonanti del nome, con vocali in caso di carenza).
+- Le prime 6 lettere del CF dell'assistito DEVONO essere coerenti con cognome+nome estratti, seguendo le regole ministeriali italiane:
+  * Cognome (3 lettere): prime 3 consonanti in ordine; se non bastano, completa con le vocali in ordine; se ancora insufficienti, riempi con X.
+  * Nome (3 lettere): se ha >=4 consonanti, prendi la 1a, 3a e 4a; altrimenti consonanti in ordine + vocali in ordine, padding con X.
+  * Esempio: ROSSI MARIO → RSSMRA; DE LUCA ANNA → DLCNNA.
+- Se il CF letto non rispetta queste prime 6 lettere rispetto a cognome+nome, è quasi certamente il CF del MEDICO o di un altro soggetto: NON restituirlo, cerca quello vero dell'assistito.
 - Se hai dubbi, verifica che la 9ª posizione (lettera del mese) sia una di: A B C D E H L M P R S T.
 - Se non riesci a leggere con certezza un CF di 16 caratteri valido, restituisci null. NON inventare.
 
 Se un altro campo non è presente, usa null. Rispondi SOLO con il JSON.`;
 
-  // Prima passata con modello veloce. Se il CF è mancante o non valido, riprova con il modello forte.
+  // Prima passata con modello veloce.
   const first = await callAIExtraction(apiKey, prompt, base64, mimeType, "google/gemini-2.5-flash");
-  if (first && normalizeCF(first.codice_fiscale ?? null)) {
-    first.codice_fiscale = normalizeCF(first.codice_fiscale ?? null);
+  const firstOk =
+    first &&
+    normalizeCF(first.codice_fiscale ?? null) &&
+    cfMatchesName(first.codice_fiscale ?? null, first.cognome ?? "", first.nome ?? "");
+  if (firstOk) {
+    first!.codice_fiscale = normalizeCF(first!.codice_fiscale ?? null);
     return first;
   }
+  // Retry con modello forte: utile sia se il CF è illeggibile sia se sembra quello del medico.
   const retry = await callAIExtraction(apiKey, prompt, base64, mimeType, "google/gemini-2.5-pro");
   if (retry) {
-    retry.codice_fiscale = normalizeCF(retry.codice_fiscale ?? null);
+    const cfNorm = normalizeCF(retry.codice_fiscale ?? null);
+    if (cfNorm && !cfMatchesName(cfNorm, retry.cognome ?? "", retry.nome ?? "")) {
+      // CF formalmente valido ma incoerente col nome → probabile CF del medico: scarta.
+      retry.codice_fiscale = null;
+    } else {
+      retry.codice_fiscale = cfNorm;
+    }
     return retry;
   }
   return first;
@@ -541,10 +556,24 @@ async function callAIExtraction(apiKey: string, prompt: string, base64: string, 
   const cleaned = content.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```$/i, "").trim();
   try {
     const parsed = ExtractedSchema.parse(JSON.parse(cleaned));
-    // Se il CF restituito non è valido, prova a recuperarne uno valido dalla risposta grezza.
-    if (!normalizeCF(parsed.codice_fiscale ?? null)) {
+    const cfNorm = normalizeCF(parsed.codice_fiscale ?? null);
+    const cog = parsed.cognome ?? "";
+    const nom = parsed.nome ?? "";
+    // Se il CF restituito non è valido OPPURE non corrisponde al nome dell'assistito
+    // (probabile CF del medico), cerchiamo nella risposta grezza un CF coerente.
+    if (!cfNorm || !cfMatchesName(cfNorm, cog, nom)) {
       const cfs = extractValidCFs(cleaned);
-      if (cfs.length > 0) parsed.codice_fiscale = cfs[0];
+      const matching = pickCFForName(cfs, cog, nom);
+      if (matching) {
+        parsed.codice_fiscale = matching;
+      } else if (cfNorm && !cfMatchesName(cfNorm, cog, nom)) {
+        // CF valido ma incoerente con nome → meglio scartare che salvare quello del medico
+        parsed.codice_fiscale = null;
+      } else {
+        parsed.codice_fiscale = cfNorm;
+      }
+    } else {
+      parsed.codice_fiscale = cfNorm;
     }
     return parsed;
   } catch {
