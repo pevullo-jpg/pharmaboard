@@ -6,10 +6,10 @@ import { StatCard } from "@/components/pharmacy/stat-card";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { CalendarClock, FileText, AlertTriangle, Euro, ArrowRight, Mail, Loader2 } from "lucide-react";
+import { CalendarClock, FileText, AlertTriangle, Euro, ArrowRight, Mail, Loader2, ExternalLink, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { it } from "date-fns/locale";
-import { syncGmailRicette } from "@/lib/gmail.functions";
+import { syncGmailRicette, getRicettaAttachment, deleteRicettaEmail } from "@/lib/gmail.functions";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/")({
@@ -20,10 +20,38 @@ export const Route = createFileRoute("/_authenticated/")({
 function Dashboard() {
   const qc = useQueryClient();
   const sync = useServerFn(syncGmailRicette);
+  const openAtt = useServerFn(getRicettaAttachment);
+  const delEmail = useServerFn(deleteRicettaEmail);
   const syncMutation = useMutation({
     mutationFn: async () => sync(),
     onSuccess: (r) => {
       toast.success(`Sync completata: ${r.importedRicette} nuove ricette su ${r.checked} email`);
+      qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const openMutation = useMutation({
+    mutationFn: async (ricettaId: string) => openAtt({ data: { ricettaId } }),
+    onSuccess: (res) => {
+      const w = window.open("", "_blank");
+      if (!w) {
+        toast.error("Popup bloccato. Consenti i popup per aprire la ricetta.");
+        return;
+      }
+      if (res.mimeType === "application/pdf") {
+        w.document.write(`<iframe src="${res.dataUrl}" style="border:0;width:100%;height:100vh"></iframe>`);
+      } else {
+        w.document.write(`<img src="${res.dataUrl}" style="max-width:100%;height:auto" alt="${res.filename}" />`);
+      }
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (ricettaId: string) => delEmail({ data: { ricettaId } }),
+    onSuccess: () => {
+      toast.success("Email spostata nel cestino e ricetta eliminata");
       qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -106,7 +134,35 @@ function Dashboard() {
                   {r.data_ricetta && <span>{format(new Date(r.data_ricetta), "d MMM yyyy", { locale: it })}</span>}
                 </div>
               </div>
-              <Badge variant={r.stato === "nuova" ? "default" : "secondary"}>{r.stato}</Badge>
+              <div className="flex items-center gap-2 shrink-0">
+                <Badge variant={r.stato === "nuova" ? "default" : "secondary"}>{r.stato}</Badge>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  title="Apri ricetta"
+                  disabled={openMutation.isPending && openMutation.variables === r.id}
+                  onClick={() => openMutation.mutate(r.id)}
+                >
+                  {openMutation.isPending && openMutation.variables === r.id
+                    ? <Loader2 className="size-4 animate-spin" />
+                    : <ExternalLink className="size-4" />}
+                </Button>
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  title="Elimina email e ricetta"
+                  disabled={deleteMutation.isPending && deleteMutation.variables === r.id}
+                  onClick={() => {
+                    if (window.confirm("Spostare l'email nel cestino di Gmail ed eliminare la ricetta?")) {
+                      deleteMutation.mutate(r.id);
+                    }
+                  }}
+                >
+                  {deleteMutation.isPending && deleteMutation.variables === r.id
+                    ? <Loader2 className="size-4 animate-spin" />
+                    : <Trash2 className="size-4 text-destructive" />}
+                </Button>
+              </div>
             </div>
           ))}
         </div>
