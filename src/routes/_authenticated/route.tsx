@@ -1,6 +1,7 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
 import { AppShell } from "@/components/pharmacy/app-shell";
+import { FarmaciaGate } from "@/components/pharmacy/farmacia-gate";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
@@ -14,8 +15,10 @@ export const Route = createFileRoute("/_authenticated")({
 
 function LayoutComponent() {
   return (
-    <AppShell>
-      <Outlet />
-    </AppShell>
+    <FarmaciaGate>
+      <AppShell>
+        <Outlet />
+      </AppShell>
+    </FarmaciaGate>
   );
 }
