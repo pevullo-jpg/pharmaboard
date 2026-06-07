@@ -417,10 +417,43 @@ async function extractRicettaWithAI(base64: string, mimeType: string): Promise<z
   const apiKey = process.env.LOVABLE_API_KEY;
   if (!apiKey) throw new Error("LOVABLE_API_KEY missing");
 
-  const prompt = `Estrai dalla ricetta medica italiana i seguenti campi in JSON puro (no markdown):
-{ "nome": string|null, "cognome": string|null, "codice_fiscale": string|null (16 caratteri), "medico": string|null, "esenzione": string|null, "data_ricetta": string|null (YYYY-MM-DD), "numero_ricetta": string|null, "dpc": boolean (true se compare la sigla DPC) }
-Se un campo non è presente, usa null. Rispondi SOLO con il JSON.`;
+  const prompt = `Sei un OCR specializzato in ricette mediche italiane (SSN). Estrai i campi dell'ASSISTITO (paziente), NON del medico né della farmacia.
 
+Restituisci SOLO un JSON puro, senza markdown, in questo formato:
+{
+  "nome": string|null,            // nome dell'assistito
+  "cognome": string|null,         // cognome dell'assistito
+  "codice_fiscale": string|null,  // ESATTAMENTE il CF dell'assistito (16 caratteri, struttura: 6 lettere cognome+nome, 2 cifre anno, 1 lettera mese, 2 cifre giorno, 1 lettera comune, 3 cifre, 1 lettera controllo)
+  "medico": string|null,          // cognome/nome del medico prescrittore
+  "esenzione": string|null,       // codice esenzione (es. "007", "C05", "E01"), null se assente
+  "data_ricetta": string|null,    // ISO YYYY-MM-DD
+  "numero_ricetta": string|null,  // numero ricetta NRE/NIR (di solito 15 cifre)
+  "dpc": boolean                  // true se compare la sigla DPC
+}
+
+REGOLE CRITICHE per il codice_fiscale:
+- Sulla ricetta SSN ci sono spesso DUE codici fiscali: quello dell'ASSISTITO (in alto, sezione "Cognome e nome dell'assistito" / "Codice Fiscale Assistito") e quello del MEDICO (vicino alla firma / "Codice Fiscale Medico" / "Cod. Regionale"). DEVI restituire solo quello dell'ASSISTITO.
+- Le prime 6 lettere del CF dell'assistito devono essere coerenti con cognome+nome estratti (3 consonanti del cognome + 3 consonanti del nome, con vocali in caso di carenza).
+- Se hai dubbi, verifica che la 9ª posizione (lettera del mese) sia una di: A B C D E H L M P R S T.
+- Se non riesci a leggere con certezza un CF di 16 caratteri valido, restituisci null. NON inventare.
+
+Se un altro campo non è presente, usa null. Rispondi SOLO con il JSON.`;
+
+  // Prima passata con modello veloce. Se il CF è mancante o non valido, riprova con il modello forte.
+  const first = await callAIExtraction(apiKey, prompt, base64, mimeType, "google/gemini-2.5-flash");
+  if (first && normalizeCF(first.codice_fiscale ?? null)) {
+    first.codice_fiscale = normalizeCF(first.codice_fiscale ?? null);
+    return first;
+  }
+  const retry = await callAIExtraction(apiKey, prompt, base64, mimeType, "google/gemini-2.5-pro");
+  if (retry) {
+    retry.codice_fiscale = normalizeCF(retry.codice_fiscale ?? null);
+    return retry;
+  }
+  return first;
+}
+
+async function callAIExtraction(apiKey: string, prompt: string, base64: string, mimeType: string, model: string): Promise<z.infer<typeof ExtractedSchema> | null> {
   const dataUrl = `data:${mimeType};base64,${base64}`;
   const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
@@ -429,7 +462,7 @@ Se un campo non è presente, usa null. Rispondi SOLO con il JSON.`;
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "google/gemini-2.5-flash-lite",
+      model,
       messages: [
         {
           role: "user",
@@ -442,7 +475,7 @@ Se un campo non è presente, usa null. Rispondi SOLO con il JSON.`;
     }),
   });
   if (!res.ok) {
-    console.error("AI parse failed", res.status, await res.text());
+    console.error(`AI parse failed (${model})`, res.status, await res.text());
     return null;
   }
   const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
@@ -450,14 +483,14 @@ Se un campo non è presente, usa null. Rispondi SOLO con il JSON.`;
   const cleaned = content.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```$/i, "").trim();
   try {
     const parsed = ExtractedSchema.parse(JSON.parse(cleaned));
-    // Fallback: se il modello non ha estratto il CF, cercalo con regex nella risposta grezza.
-    if (!parsed.codice_fiscale || parsed.codice_fiscale.replace(/\s+/g, "").length !== 16) {
-      const cfFromRaw = cleaned.toUpperCase().replace(/\s+/g, "").match(/[A-Z]{6}[0-9]{2}[A-Z][0-9]{2}[A-Z][0-9]{3}[A-Z]/);
-      if (cfFromRaw) parsed.codice_fiscale = cfFromRaw[0];
+    // Se il CF restituito non è valido, prova a recuperarne uno valido dalla risposta grezza.
+    if (!normalizeCF(parsed.codice_fiscale ?? null)) {
+      const cfs = extractValidCFs(cleaned);
+      if (cfs.length > 0) parsed.codice_fiscale = cfs[0];
     }
     return parsed;
   } catch {
-    console.error("AI JSON parse failed:", cleaned.slice(0, 200));
+    console.error(`AI JSON parse failed (${model}):`, cleaned.slice(0, 200));
     return null;
   }
 }
