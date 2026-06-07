@@ -4,6 +4,96 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 const GATEWAY_URL = "https://connector-gateway.lovable.dev/google_mail/gmail/v1";
 
+/**
+ * Risolve o crea un assistito per una farmacia, deduplicando su CF e, in mancanza,
+ * su (cognome, nome). Se trova un match per nome e arriva un CF nuovo, aggiorna il record.
+ */
+async function resolveOrCreateAssistito(args: {
+  farmaciaId: string;
+  cf: string | null;
+  nome: string;
+  cognome: string;
+  medico: string | null;
+  esenzione: string | null;
+}): Promise<string | null> {
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { farmaciaId, cf, nome, cognome, medico, esenzione } = args;
+
+  // 1) Match per CF
+  if (cf) {
+    const { data: byCf } = await supabaseAdmin
+      .from("assistiti")
+      .select("id")
+      .eq("farmacia_id", farmaciaId)
+      .eq("codice_fiscale", cf)
+      .maybeSingle();
+    if (byCf) return byCf.id;
+  }
+
+  // 2) Match per cognome+nome (case-insensitive)
+  if (cognome && nome) {
+    const { data: byName } = await supabaseAdmin
+      .from("assistiti")
+      .select("id, codice_fiscale")
+      .eq("farmacia_id", farmaciaId)
+      .ilike("cognome", cognome)
+      .ilike("nome", nome)
+      .limit(1)
+      .maybeSingle();
+    if (byName) {
+      // Se ora abbiamo un CF e prima mancava, completa il record (fusione).
+      if (cf && !byName.codice_fiscale) {
+        await supabaseAdmin
+          .from("assistiti")
+          .update({ codice_fiscale: cf, medico: medico ?? undefined, esenzione: esenzione ?? undefined })
+          .eq("id", byName.id);
+      }
+      return byName.id;
+    }
+  }
+
+  // 3) Crea nuovo (richiede almeno un identificativo: CF oppure cognome+nome)
+  if (!cf && (!cognome || !nome)) return null;
+  const { data: created, error: cErr } = await supabaseAdmin
+    .from("assistiti")
+    .insert({
+      farmacia_id: farmaciaId,
+      nome: nome || "(sconosciuto)",
+      cognome: cognome || "(sconosciuto)",
+      codice_fiscale: cf,
+      medico,
+      esenzione,
+    })
+    .select("id")
+    .single();
+  if (cErr) {
+    // Race: qualcun altro l'ha creato in parallelo → rileggi.
+    console.error("Create assistito failed, retrying lookup", cErr.message);
+    if (cf) {
+      const { data: again } = await supabaseAdmin
+        .from("assistiti")
+        .select("id")
+        .eq("farmacia_id", farmaciaId)
+        .eq("codice_fiscale", cf)
+        .maybeSingle();
+      if (again) return again.id;
+    }
+    if (cognome && nome) {
+      const { data: again } = await supabaseAdmin
+        .from("assistiti")
+        .select("id")
+        .eq("farmacia_id", farmaciaId)
+        .ilike("cognome", cognome)
+        .ilike("nome", nome)
+        .limit(1)
+        .maybeSingle();
+      if (again) return again.id;
+    }
+    return null;
+  }
+  return created?.id ?? null;
+}
+
 function gmailHeaders(extra?: HeadersInit): Headers {
   const apiKey = process.env.LOVABLE_API_KEY;
   const connKey = process.env.GOOGLE_MAIL_API_KEY;
