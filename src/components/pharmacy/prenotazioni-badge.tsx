@@ -29,6 +29,7 @@ export function PrenotazioniBadge({ assistitoId, label }: { assistitoId: string;
   });
 
   const count = (prenotazioni ?? []).length;
+  const lit = count > 0;
 
   const [farmaco, setFarmaco] = useState("");
   const [quantita, setQuantita] = useState("1");
@@ -77,7 +78,12 @@ export function PrenotazioniBadge({ assistitoId, label }: { assistitoId: string;
       <button
         type="button"
         onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(true); }}
-        className="inline-flex items-center gap-1 rounded-md border border-secondary/60 bg-secondary/40 text-secondary-foreground px-2 py-0.5 text-xs font-medium hover:bg-secondary/60 transition-colors"
+        className={
+          "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium border transition-colors " +
+          (lit
+            ? "border-secondary bg-secondary/60 text-secondary-foreground hover:bg-secondary/80"
+            : "border-border/40 bg-muted/30 text-muted-foreground hover:bg-muted/50")
+        }
         title="Gestisci prenotazioni"
       >
         <CalendarClock className="size-3" />
