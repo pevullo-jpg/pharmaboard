@@ -38,6 +38,7 @@ export function AnticipiBadge({ assistitoId, label }: { assistitoId: string; lab
   });
 
   const count = (anticipi ?? []).length;
+  const lit = count > 0;
 
   const [farmaco, setFarmaco] = useState("");
   const [quantita, setQuantita] = useState("1");
@@ -94,7 +95,12 @@ export function AnticipiBadge({ assistitoId, label }: { assistitoId: string; lab
       <button
         type="button"
         onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(true); }}
-        className="inline-flex items-center gap-1 rounded-md border border-accent/40 bg-accent/15 text-accent px-2 py-0.5 text-xs font-medium hover:bg-accent/25 transition-colors"
+        className={
+          "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium border transition-colors " +
+          (lit
+            ? "border-accent/50 bg-accent/15 text-accent hover:bg-accent/25 accent-glow"
+            : "border-border/40 bg-muted/30 text-muted-foreground hover:bg-muted/50")
+        }
         title="Gestisci anticipi"
       >
         <Package className="size-3" />
