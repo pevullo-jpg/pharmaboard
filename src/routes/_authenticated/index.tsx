@@ -243,6 +243,7 @@ function FarmaciaDashboard() {
   const sync = useServerFn(syncGmailRicette);
   const openAtt = useServerFn(getRicettaAttachment);
   const delEmail = useServerFn(deleteRicettaEmail);
+  const [filter, setFilter] = useState<"all" | "prenotazioni" | "ricette" | "dpc" | "debiti">("all");
   const syncMutation = useMutation({
     mutationFn: async () => sync(),
     onSuccess: (r) => {
@@ -281,12 +282,14 @@ function FarmaciaDashboard() {
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard-stats"],
     queryFn: async () => {
-      const [prenotazioni, ricette, dpc, debiti, ultimeRicette] = await Promise.all([
+      const [prenotazioni, ricette, dpc, debiti, ultimeRicette, prenIds, debIds] = await Promise.all([
         supabase.from("prenotazioni").select("id", { count: "exact", head: true }).in("stato", ["in_attesa", "pronto"]),
         supabase.from("ricette").select("id", { count: "exact", head: true }).eq("stato", "nuova"),
         supabase.from("ricette").select("id", { count: "exact", head: true }).eq("is_dpc_alert", true).eq("stato", "nuova"),
         supabase.from("debiti").select("importo").eq("stato", "aperto"),
-        supabase.from("ricette").select("id, assistito_id, nome, cognome, codice_fiscale, data_ricetta, medico, dpc, is_dpc_alert, stato, created_at").order("created_at", { ascending: false }).limit(40),
+        supabase.from("ricette").select("id, assistito_id, nome, cognome, codice_fiscale, data_ricetta, medico, dpc, is_dpc_alert, stato, created_at").order("created_at", { ascending: false }).limit(200),
+        supabase.from("prenotazioni").select("assistito_id").in("stato", ["in_attesa", "pronto"]),
+        supabase.from("debiti").select("assistito_id").eq("stato", "aperto"),
       ]);
       const totaleDebiti = (debiti.data ?? []).reduce((s, r: { importo: number | string }) => s + Number(r.importo ?? 0), 0);
       const all = ultimeRicette.data ?? [];
@@ -300,18 +303,50 @@ function FarmaciaDashboard() {
         }
         return { ...r, _days: days, _kind: kind };
       });
-      const expired = withStatus.filter((r) => r._kind === "expired").sort((a, b) => (b._days ?? 0) - (a._days ?? 0));
-      const expiring = withStatus.filter((r) => r._kind === "expiring").sort((a, b) => (b._days ?? 0) - (a._days ?? 0));
-      const normal = withStatus.filter((r) => r._kind === "normal").slice(0, 8);
+      const prenSet = new Set((prenIds.data ?? []).map((r: { assistito_id: string | null }) => r.assistito_id).filter(Boolean) as string[]);
+      const debSet = new Set((debIds.data ?? []).map((r: { assistito_id: string | null }) => r.assistito_id).filter(Boolean) as string[]);
       return {
         prenotazioni: prenotazioni.count ?? 0,
         ricette: ricette.count ?? 0,
         dpc: dpc.count ?? 0,
         debiti: totaleDebiti,
-        ultime: [...expired, ...expiring, ...normal],
+        all: withStatus,
+        prenSet,
+        debSet,
       };
     },
   });
+
+  const rows = (() => {
+    if (!data) return [] as typeof data extends { all: infer A } ? A : never[];
+    const all = data.all;
+    if (filter === "all") {
+      const expired = all.filter((r) => r._kind === "expired").sort((a, b) => (b._days ?? 0) - (a._days ?? 0));
+      const expiring = all.filter((r) => r._kind === "expiring").sort((a, b) => (b._days ?? 0) - (a._days ?? 0));
+      const normal = all.filter((r) => r._kind === "normal").slice(0, 8);
+      return [...expired, ...expiring, ...normal];
+    }
+    let matched = all;
+    if (filter === "ricette") matched = all.filter((r) => r.stato === "nuova");
+    else if (filter === "dpc") matched = all.filter((r) => r.is_dpc_alert);
+    else if (filter === "prenotazioni") matched = all.filter((r) => r.assistito_id && data.prenSet.has(r.assistito_id));
+    else if (filter === "debiti") matched = all.filter((r) => r.assistito_id && data.debSet.has(r.assistito_id));
+    // dedupe per assistito (keep most recent — list is already sorted by created_at desc)
+    const seen = new Set<string>();
+    const out: typeof matched = [];
+    for (const r of matched) {
+      const key = r.assistito_id ?? `r:${r.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(r);
+    }
+    // expired first, then expiring, then normal
+    const order = { expired: 0, expiring: 1, normal: 2 } as const;
+    out.sort((a, b) => order[a._kind] - order[b._kind] || (b._days ?? 0) - (a._days ?? 0));
+    return out;
+  })();
+
+  const toggle = (f: typeof filter) => setFilter((cur) => (cur === f ? "all" : f));
 
   return (
     <div className="space-y-8">
@@ -331,31 +366,45 @@ function FarmaciaDashboard() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Prenotazioni attive" value={isLoading ? "…" : data!.prenotazioni} icon={CalendarClock} hint="In attesa o pronte" />
-        <StatCard label="Ricette nuove" value={isLoading ? "…" : data!.ricette} icon={FileText} hint="Da lavorare" />
-        <StatCard label="Avvisi DPC" value={isLoading ? "…" : data!.dpc} icon={AlertTriangle} accent hint="Da evidenziare" />
+        <StatCard label="Prenotazioni attive" value={isLoading ? "…" : data!.prenotazioni} icon={CalendarClock} hint="In attesa o pronte" tone="secondary" active={filter === "prenotazioni"} onClick={() => toggle("prenotazioni")} />
+        <StatCard label="Ricette nuove" value={isLoading ? "…" : data!.ricette} icon={FileText} hint="Da lavorare" tone="primary" active={filter === "ricette"} onClick={() => toggle("ricette")} />
+        <StatCard label="Avvisi DPC" value={isLoading ? "…" : data!.dpc} icon={AlertTriangle} hint="Da evidenziare" tone="accent" active={filter === "dpc"} onClick={() => toggle("dpc")} />
         <StatCard
           label="Debiti aperti"
           value={isLoading ? "…" : new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(data!.debiti)}
           icon={Euro}
           hint="Totale insoluto"
+          tone="emerald"
+          active={filter === "debiti"}
+          onClick={() => toggle("debiti")}
         />
       </div>
 
       <Card className="glass-card overflow-hidden">
         <div className="px-5 py-4 border-b border-border/60 flex items-center justify-between">
           <div>
-            <h2 className="font-semibold">Ultime ricette</h2>
-            <p className="text-xs text-muted-foreground">Importate da Gmail o inserite manualmente</p>
+            <h2 className="font-semibold">
+              {filter === "all" && "Ultime ricette"}
+              {filter === "prenotazioni" && "Assistiti con prenotazioni attive"}
+              {filter === "ricette" && "Ricette nuove da lavorare"}
+              {filter === "dpc" && "Assistiti con avvisi DPC"}
+              {filter === "debiti" && "Assistiti con debiti aperti"}
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              {filter === "all" ? "Importate da Gmail o inserite manualmente" : "Ogni assistito è mostrato una sola volta"}
+            </p>
           </div>
+          {filter !== "all" && (
+            <Button size="sm" variant="ghost" onClick={() => setFilter("all")}>Mostra tutte</Button>
+          )}
         </div>
         <div className="divide-y divide-border/40">
-          {(data?.ultime ?? []).length === 0 && !isLoading && (
+          {rows.length === 0 && !isLoading && (
             <div className="px-5 py-12 text-center text-sm text-muted-foreground">
-              Nessuna ricetta ancora. Collega Gmail in Impostazioni o aggiungi manualmente.
+              {filter === "all" ? "Nessuna ricetta ancora. Collega Gmail in Impostazioni o aggiungi manualmente." : "Nessun assistito corrisponde al filtro selezionato."}
             </div>
           )}
-          {(data?.ultime ?? []).map((r) => {
+          {rows.map((r) => {
             const kind = (r as { _kind?: "expired" | "expiring" | "normal" })._kind ?? "normal";
             const days = (r as { _days?: number | null })._days ?? null;
             const rowCls =

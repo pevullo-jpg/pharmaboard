@@ -31,6 +31,7 @@ export function DebitiBadge({ assistitoId, label }: { assistitoId: string; label
   });
 
   const totale = (debiti ?? []).reduce((s, d) => s + Number(d.importo), 0);
+  const lit = (debiti ?? []).length > 0;
 
   const [importo, setImporto] = useState("");
   const [descrizione, setDescrizione] = useState("");
@@ -71,7 +72,12 @@ export function DebitiBadge({ assistitoId, label }: { assistitoId: string; label
       <button
         type="button"
         onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOpen(true); }}
-        className="inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/15 text-primary px-2 py-0.5 text-xs font-medium hover:bg-primary/25 transition-colors"
+        className={
+          "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium border transition-colors " +
+          (lit
+            ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 shadow-[0_0_14px_-4px_rgb(16_185_129/0.55)]"
+            : "border-border/40 bg-muted/30 text-muted-foreground hover:bg-muted/50")
+        }
         title="Gestisci debiti"
       >
         <Euro className="size-3" />
