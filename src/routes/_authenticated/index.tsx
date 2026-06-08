@@ -7,8 +7,8 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { CalendarClock, FileText, AlertTriangle, Euro, Mail, Loader2, ExternalLink, Trash2, ShieldCheck, CheckCircle2, PauseCircle, XCircle, Building2, Database } from "lucide-react";
-import { format } from "date-fns";
+import { CalendarClock, FileText, AlertTriangle, Euro, Mail, Loader2, ExternalLink, Trash2, ShieldCheck, CheckCircle2, PauseCircle, XCircle, Building2, Database, Clock, AlertOctagon } from "lucide-react";
+import { format, differenceInCalendarDays } from "date-fns";
 import { it } from "date-fns/locale";
 import { syncGmailRicette, getRicettaAttachment, deleteRicettaEmail } from "@/lib/gmail.functions";
 import { getMyFarmacia, listAllFarmacie, setFarmaciaStato, setFarmaciaDataStop } from "@/lib/farmacie.functions";
@@ -286,15 +286,29 @@ function FarmaciaDashboard() {
         supabase.from("ricette").select("id", { count: "exact", head: true }).eq("stato", "nuova"),
         supabase.from("ricette").select("id", { count: "exact", head: true }).eq("is_dpc_alert", true).eq("stato", "nuova"),
         supabase.from("debiti").select("importo").eq("stato", "aperto"),
-        supabase.from("ricette").select("id, assistito_id, nome, cognome, codice_fiscale, data_ricetta, medico, dpc, is_dpc_alert, stato, created_at").order("created_at", { ascending: false }).limit(8),
+        supabase.from("ricette").select("id, assistito_id, nome, cognome, codice_fiscale, data_ricetta, medico, dpc, is_dpc_alert, stato, created_at").order("created_at", { ascending: false }).limit(40),
       ]);
       const totaleDebiti = (debiti.data ?? []).reduce((s, r: { importo: number | string }) => s + Number(r.importo ?? 0), 0);
+      const all = ultimeRicette.data ?? [];
+      const withStatus = all.map((r) => {
+        const ref = r.data_ricetta ? new Date(r.data_ricetta) : null;
+        const days = ref ? differenceInCalendarDays(new Date(), ref) : null;
+        let kind: "expired" | "expiring" | "normal" = "normal";
+        if (days !== null) {
+          if (days > 32) kind = "expired";
+          else if (days > 25) kind = "expiring";
+        }
+        return { ...r, _days: days, _kind: kind };
+      });
+      const expired = withStatus.filter((r) => r._kind === "expired").sort((a, b) => (b._days ?? 0) - (a._days ?? 0));
+      const expiring = withStatus.filter((r) => r._kind === "expiring").sort((a, b) => (b._days ?? 0) - (a._days ?? 0));
+      const normal = withStatus.filter((r) => r._kind === "normal").slice(0, 8);
       return {
         prenotazioni: prenotazioni.count ?? 0,
         ricette: ricette.count ?? 0,
         dpc: dpc.count ?? 0,
         debiti: totaleDebiti,
-        ultime: ultimeRicette.data ?? [],
+        ultime: [...expired, ...expiring, ...normal],
       };
     },
   });
@@ -341,14 +355,33 @@ function FarmaciaDashboard() {
               Nessuna ricetta ancora. Collega Gmail in Impostazioni o aggiungi manualmente.
             </div>
           )}
-          {(data?.ultime ?? []).map((r) => (
-            <div key={r.id} className="px-5 py-3 flex items-center justify-between gap-4 hover:bg-sidebar-accent/30 transition-colors">
+          {(data?.ultime ?? []).map((r) => {
+            const kind = (r as { _kind?: "expired" | "expiring" | "normal" })._kind ?? "normal";
+            const days = (r as { _days?: number | null })._days ?? null;
+            const rowCls =
+              kind === "expired"
+                ? "bg-red-500/10 hover:bg-red-500/15"
+                : kind === "expiring"
+                  ? "bg-amber-500/10 hover:bg-amber-500/15"
+                  : "hover:bg-sidebar-accent/30";
+            return (
+            <div key={r.id} className={`px-5 py-3 flex items-center justify-between gap-4 transition-colors ${rowCls}`}>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium truncate">{r.cognome ?? ""} {r.nome ?? ""}</span>
                   {r.codice_fiscale && <span className="text-xs text-muted-foreground font-mono">{r.codice_fiscale}</span>}
                   {r.is_dpc_alert && <Badge className="bg-accent/20 text-accent border border-accent/40 accent-glow">DPC</Badge>}
                   {r.dpc && !r.is_dpc_alert && <Badge variant="outline">DPC</Badge>}
+                  {kind === "expiring" && days !== null && (
+                    <Badge className="bg-amber-500/20 text-amber-300 border border-amber-500/40 gap-1">
+                      <Clock className="size-3" /> Scade tra {Math.max(0, 30 - days)}g
+                    </Badge>
+                  )}
+                  {kind === "expired" && (
+                    <Badge className="bg-red-500/20 text-red-300 border border-red-500/40 gap-1">
+                      <AlertOctagon className="size-3" /> Scaduta {days !== null ? `da ${days - 30}g` : ""}
+                    </Badge>
+                  )}
                 </div>
                 <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3">
                   {r.medico && <span>Dr. {r.medico}</span>}
@@ -377,6 +410,23 @@ function FarmaciaDashboard() {
                     ? <Loader2 className="size-4 animate-spin" />
                     : <ExternalLink className="size-4" />}
                 </Button>
+                {kind === "expired" ? (
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="gap-1"
+                    disabled={deleteMutation.isPending && deleteMutation.variables === r.id}
+                    onClick={() => {
+                      if (window.confirm("Ricetta scaduta. Confermi l'eliminazione (e lo spostamento dell'email nel cestino)?")) {
+                        deleteMutation.mutate(r.id);
+                      }
+                    }}
+                  >
+                    {deleteMutation.isPending && deleteMutation.variables === r.id
+                      ? <Loader2 className="size-4 animate-spin" />
+                      : <><Trash2 className="size-4" /> Elimina</>}
+                  </Button>
+                ) : (
                 <Button
                   size="icon"
                   variant="ghost"
@@ -392,9 +442,11 @@ function FarmaciaDashboard() {
                     ? <Loader2 className="size-4 animate-spin" />
                     : <Trash2 className="size-4 text-destructive" />}
                 </Button>
+                )}
               </div>
             </div>
-          ))}
+          );
+          })}
         </div>
       </Card>
     </div>
