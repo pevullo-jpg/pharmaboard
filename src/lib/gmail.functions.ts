@@ -544,14 +544,14 @@ CLASSIFICAZIONE (tipo_documento):
    b) nome E cognome dell'ASSISTITO leggibili,
    c) nome E cognome del MEDICO prescrittore leggibili (firma, timbro o intestazione),
    d) la parola "prescrizione" o "prescrizione medica" o "promemoria di prescrizione" deve comparire nel testo,
-   e) codice NRE da 15 cifre numeriche (= 5 cifre del codice regionale + 10 cifre numeriche),
-   f) codice regionale (5 cifre numeriche) sopra/accanto al barcode regionale,
+   e) codice NRE di 15 caratteri = codice regionale di 5 caratteri alfanumerici (es. "1900A", 4 cifre + 1 lettera) + 10 cifre numeriche,
+   f) codice regionale di 5 caratteri alfanumerici (es. "1900A") sopra/accanto al barcode regionale,
    g) almeno UN barcode in formato Code39 (linee verticali nere).
    Se MANCA anche uno solo di a–g → NON è una ricetta canonica, classifica come "altro" o "sintesi" secondo i criteri sotto.
 
 2) "sintesi" — foglio di riepilogo con SOLO:
    - un CF assistito,
-   - una o più coppie (codice regionale 5 cifre + NRE 15 cifre).
+   - una o più coppie (codice regionale 5 alfanumerici + NRE 15 caratteri).
    NESSUN dettaglio farmaco e NESSUN nome del medico. Tipicamente è una stampa di promemoria con elenco di ricette.
 
 3) "altro" — qualsiasi altro documento (carte d'identità, tessere sanitarie, scontrini, referti, lettere, brochure, allegati firma, e qualsiasi documento che non rientri nei criteri di 1 o 2).
@@ -570,7 +570,7 @@ Restituisci SOLO JSON puro (no markdown), con questa forma:
   "data_ricetta": string|null,               // ISO YYYY-MM-DD
   "dpc": boolean,                            // true se compare la sigla DPC
   "prescrizioni": [
-    { "numero_ricetta": "<15 cifre>", "codice_regionale": "<5 cifre>" }
+    { "numero_ricetta": "<5 alfanumerici + 10 cifre, totale 15>", "codice_regionale": "<5 alfanumerici>" }
   ]
 }
 
@@ -581,8 +581,8 @@ REGOLE CRITICHE codice_fiscale assistito:
 - Se non riesci a leggere un CF di 16 char valido, metti null. NON inventare.
 
 REGOLE prescrizioni:
-- "numero_ricetta" = NRE = ESATTAMENTE 15 cifre numeriche (sole cifre, niente spazi/trattini). Sono il codice regionale (5) + 10 cifre numeriche.
-- "codice_regionale" = ESATTAMENTE 5 cifre numeriche.
+- "numero_ricetta" = NRE = ESATTAMENTE 15 caratteri = 5 caratteri alfanumerici (codice regionale, es. "1900A") + 10 cifre numeriche. Niente spazi/trattini. Esempio: "1900A4963790679".
+- "codice_regionale" = ESATTAMENTE 5 caratteri alfanumerici. Es. "1900A" per la Sicilia.
 - Se il documento contiene più NRE distinti ("sintesi"), restituiscili TUTTI come elementi separati.
 - Se non è "ricetta" né "sintesi", restituisci [] e tipo_documento "altro".
 
