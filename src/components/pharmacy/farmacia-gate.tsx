@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { getMyFarmacia } from "@/lib/farmacie.functions";
@@ -9,12 +10,35 @@ import { Pill, Loader2, Clock, LogOut, ShieldCheck } from "lucide-react";
 
 export function FarmaciaGate({ children }: { children: React.ReactNode }) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
   const fetchFn = useServerFn(getMyFarmacia);
-  const { data, isLoading, isError, refetch } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["my-farmacia"],
     queryFn: () => fetchFn(),
     staleTime: 30_000,
+    retry: (failureCount, err) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.includes("Unauthorized")) return false;
+      return failureCount < 2;
+    },
   });
+
+  // If the session expired or the bearer token wasn't attached, the server
+  // middleware throws "Unauthorized". Sign out and bounce to /auth instead of
+  // showing the generic error screen (or a blank one from the dev overlay).
+  useEffect(() => {
+    if (!isError) return;
+    const msg = error instanceof Error ? error.message : String(error ?? "");
+    if (msg.includes("Unauthorized")) {
+      (async () => {
+        await qc.cancelQueries();
+        qc.clear();
+        await supabase.auth.signOut();
+        navigate({ to: "/auth", replace: true });
+      })();
+    }
+  }, [isError, error, navigate, qc]);
 
   if (isLoading) {
     return (
