@@ -119,11 +119,16 @@ export function classifyAndExtract(rawText: string): ExtractedDoc | null {
  * dell'etichetta nel testo.
  */
 const LABELS: Record<string, RegExp> = {
-  ASSISTITO_NOME: /COGNOME\s+E\s+NOME(?:\/?\s*INIZIALI)?[^:]{0,40}ASSISTITO\s*:/i,
+  // Varianti viste sul campo:
+  //  - "COGNOME E NOME/INIZIALI DELL'ASSISTITO:"
+  //  - "COGNOME E NOME/ INIZIALI DELL'ASSISTITO:"
+  //  - "COGNOME E NOME:" (promemoria semplificato — escludi "DEL MEDICO")
+  ASSISTITO_NOME: /COGNOME\s+E\s+NOME(?!\s+DEL\s+MEDICO)(?:\/?\s*INIZIALI[^:]{0,40})?\s*:/i,
   INDIRIZZO: /\bINDIRIZZO\s*:/i,
   CAP: /\bCAP\s*:/i,
   CITTA: /\bCITT[A']?\s*:/i,
   PROV: /\bPROV\s*:/i,
+  COMUNE: /\bCOMUNE\s*:/i,
   ESENZIONE: /\bESENZIONE\s*:/i,
   SIGLA_PROVINCIA: /\bSIGLA\s+PROVINCIA\s*:/i,
   CODICE_ASL: /\bCODICE\s+ASL\s*:/i,
@@ -136,10 +141,13 @@ const LABELS: Record<string, RegExp> = {
   N_CONFEZIONI: /\bN[\.\s]*CONFEZIONI/i,
   TIPO_RICETTA: /\bTIPO\s+RICETTA\s*:/i,
   DATA: /\bDATA\s*:/i,
-  CF_MEDICO: /\bCODICE\s+FISCALE\s+DEL\s+MEDICO\s*:/i,
-  CODICE_AUTENTICAZIONE: /\bCODICE\s+AUTENTICAZIONE\s*:/i,
+  // Varianti: "CODICE FISCALE DEL MEDICO:" / "CODICE FISCALE MEDICO:"
+  CF_MEDICO: /\bCODICE\s+FISCALE\s+(?:DEL\s+)?MEDICO\s*:/i,
+  // Nei promemoria capita "BUSCARINO LUIGICODICE AUTENTICAZIONE:" (no spazio
+  // prima di CODICE), quindi non usiamo \b iniziale.
+  CODICE_AUTENTICAZIONE: /CODICE\s+AUTENTICAZIONE\s*:/i,
   MEDICO_NOME: /\bCOGNOME\s+E\s+NOME\s+DEL\s+MEDICO\s*:/i,
-  RILASCIATO: /\bRilasciato\s+ai\s+sensi/i,
+  RILASCIATO: /Rilasciato\s+ai\s+sensi/i,
 };
 
 /**
