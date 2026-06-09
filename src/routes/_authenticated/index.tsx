@@ -293,6 +293,12 @@ function FarmaciaDashboard() {
       ]);
       const totaleDebiti = (debiti.data ?? []).reduce((s, r: { importo: number | string }) => s + Number(r.importo ?? 0), 0);
       const all = ultimeRicette.data ?? [];
+      const cfs = [...new Set(all.map((r) => r.codice_fiscale).filter(Boolean) as string[])];
+      const { data: assistitiByCf, error: assistitiErr } = cfs.length
+        ? await supabase.from("assistiti").select("id, codice_fiscale").in("codice_fiscale", cfs)
+        : { data: [], error: null };
+      if (assistitiErr) throw assistitiErr;
+      const assistitoIdByCf = new Map((assistitiByCf ?? []).map((a) => [a.codice_fiscale, a.id]));
       const withStatus = all.map((r) => {
         const ref = r.data_ricetta ? new Date(r.data_ricetta) : null;
         const days = ref ? differenceInCalendarDays(new Date(), ref) : null;
@@ -301,7 +307,12 @@ function FarmaciaDashboard() {
           if (days > 32) kind = "expired";
           else if (days > 25) kind = "expiring";
         }
-        return { ...r, _days: days, _kind: kind };
+        return {
+          ...r,
+          _days: days,
+          _kind: kind,
+          _assistito_id: r.assistito_id ?? (r.codice_fiscale ? assistitoIdByCf.get(r.codice_fiscale) ?? null : null),
+        };
       });
       const prenSet = new Set((prenIds.data ?? []).map((r: { assistito_id: string | null }) => r.assistito_id).filter(Boolean) as string[]);
       const debSet = new Set((debIds.data ?? []).map((r: { assistito_id: string | null }) => r.assistito_id).filter(Boolean) as string[]);
@@ -329,13 +340,13 @@ function FarmaciaDashboard() {
     let matched = all;
     if (filter === "ricette") matched = all.filter((r) => r.stato === "nuova");
     else if (filter === "dpc") matched = all.filter((r) => r.is_dpc_alert);
-    else if (filter === "prenotazioni") matched = all.filter((r) => r.assistito_id && data.prenSet.has(r.assistito_id));
-    else if (filter === "debiti") matched = all.filter((r) => r.assistito_id && data.debSet.has(r.assistito_id));
+    else if (filter === "prenotazioni") matched = all.filter((r) => r._assistito_id && data.prenSet.has(r._assistito_id));
+    else if (filter === "debiti") matched = all.filter((r) => r._assistito_id && data.debSet.has(r._assistito_id));
     // dedupe per assistito (keep most recent — list is already sorted by created_at desc)
     const seen = new Set<string>();
     const out: typeof matched = [];
     for (const r of matched) {
-      const key = r.assistito_id ?? `r:${r.id}`;
+      const key = r._assistito_id ?? r.assistito_id ?? `r:${r.id}`;
       if (seen.has(key)) continue;
       seen.add(key);
       out.push(r);
@@ -407,6 +418,7 @@ function FarmaciaDashboard() {
           {rows.map((r) => {
             const kind = (r as { _kind?: "expired" | "expiring" | "normal" })._kind ?? "normal";
             const days = (r as { _days?: number | null })._days ?? null;
+            const assistitoId = (r as { _assistito_id?: string | null })._assistito_id ?? r.assistito_id;
             const rowCls =
               kind === "expired"
                 ? "bg-red-500/10 hover:bg-red-500/15"
@@ -414,8 +426,8 @@ function FarmaciaDashboard() {
                   ? "bg-amber-500/10 hover:bg-amber-500/15"
                   : "hover:bg-sidebar-accent/30";
             return (
-            <div key={r.id} className={`px-5 py-3 flex items-center justify-between gap-4 transition-colors ${rowCls}`}>
-              <div className="min-w-0 flex-1">
+            <div key={r.id} className={`px-5 py-3 flex items-center justify-between gap-4 transition-colors flex-wrap ${rowCls}`}>
+              <div className="min-w-0 flex-1 basis-64">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium truncate">{r.cognome ?? ""} {r.nome ?? ""}</span>
                   {r.codice_fiscale && <span className="text-xs text-muted-foreground font-mono">{r.codice_fiscale}</span>}
@@ -432,20 +444,20 @@ function FarmaciaDashboard() {
                     </Badge>
                   )}
                 </div>
-                <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3">
+                <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3 flex-wrap">
                   {r.medico && <span>Dr. {r.medico}</span>}
                   {r.data_ricetta && <span>{format(new Date(r.data_ricetta), "d MMM yyyy", { locale: it })}</span>}
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {r.assistito_id && (
-                  <DebitiBadge assistitoId={r.assistito_id} label={`${r.cognome ?? ""} ${r.nome ?? ""}`.trim()} />
+              <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+                {assistitoId && (
+                  <DebitiBadge assistitoId={assistitoId} label={`${r.cognome ?? ""} ${r.nome ?? ""}`.trim()} />
                 )}
-                {r.assistito_id && (
-                  <AnticipiBadge assistitoId={r.assistito_id} label={`${r.cognome ?? ""} ${r.nome ?? ""}`.trim()} />
+                {assistitoId && (
+                  <AnticipiBadge assistitoId={assistitoId} label={`${r.cognome ?? ""} ${r.nome ?? ""}`.trim()} />
                 )}
-                {r.assistito_id && (
-                  <PrenotazioniBadge assistitoId={r.assistito_id} label={`${r.cognome ?? ""} ${r.nome ?? ""}`.trim()} />
+                {assistitoId && (
+                  <PrenotazioniBadge assistitoId={assistitoId} label={`${r.cognome ?? ""} ${r.nome ?? ""}`.trim()} />
                 )}
                 <Badge variant={r.stato === "nuova" ? "default" : "secondary"}>{r.stato}</Badge>
                 <Button
