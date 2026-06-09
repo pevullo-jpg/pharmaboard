@@ -64,17 +64,20 @@ export function classifyAndExtract(rawText: string): ExtractedDoc | null {
 
   // Ricetta canonica: header SSN o promemoria + NRE + parola prescrizione.
   if ((hasSSNHeader || hasPromemoriaHeader) && hasPrescrizioneWord && nres.length > 0) {
-    const { nome, cognome } = parseAssistitoName(text);
     const medico = parseMedico(text);
     const esenzione = parseEsenzione(text);
     const dataRicetta = parseData(text);
     const cfMedico = parseCfMedico(text);
-    const cf = pickAssistitoCf(text, cognome ?? "", nome ?? "", cfMedico ? [cfMedico] : []);
-
-    if (!nome || !cognome || !medico) {
-      // Dati minimi mancanti: lascia all'AI per il retry.
+    // Regola: NON ESISTE RICETTA SENZA CF ASSISTITO.
+    // Usiamo il CF (prime 6 lettere = consonanti cognome+nome) per scegliere
+    // l'abbinamento corretto nome/cognome dell'assistito ed evitare di
+    // confonderlo con quello del medico.
+    const resolved = resolveAssistitoByCF(text, cfMedico);
+    if (!resolved || !medico) {
+      // Senza CF assistito o senza medico → lascia all'AI per retry.
       return null;
     }
+    const { nome, cognome, cf } = resolved;
 
     return {
       tipo_documento: "ricetta",
