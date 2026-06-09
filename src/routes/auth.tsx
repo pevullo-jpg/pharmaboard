@@ -11,7 +11,15 @@ import { toast } from "sonner";
 export const Route = createFileRoute("/auth")({
   ssr: false,
   head: () => ({
-    meta: [{ title: "Accedi · Farmacia Dashboard" }],
+    meta: [
+      { title: "Accedi · Farmacia Dashboard" },
+      { name: "description", content: "Accedi a Farmacia Dashboard per gestire assistiti, ricette, prenotazioni, anticipi e debiti della tua farmacia." },
+      { property: "og:title", content: "Accedi · Farmacia Dashboard" },
+      { property: "og:description", content: "Login operatori farmacia per gestire ricette, assistiti e contabilità giornaliera." },
+      { property: "og:url", content: "https://pharmaboard.lovable.app/auth" },
+      { property: "og:type", content: "website" },
+    ],
+    links: [{ rel: "canonical", href: "https://pharmaboard.lovable.app/auth" }],
   }),
   beforeLoad: async () => {
     const { data } = await supabase.auth.getUser();
