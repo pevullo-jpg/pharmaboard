@@ -20,7 +20,7 @@ import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recha
 import { useState } from "react";
 
 export const Route = createFileRoute("/_authenticated/")({
-  head: () => ({ meta: [{ title: "Dashboard" }] }),
+  head: () => ({ meta: [{ title: "Dashboard · Farmacia Dashboard" }] }),
   component: Dashboard,
 });
 
@@ -264,7 +264,7 @@ function FarmaciaDashboard() {
       if (res.mimeType === "application/pdf") {
         w.document.write(`<iframe src="${res.dataUrl}" style="border:0;width:100%;height:100vh"></iframe>`);
       } else {
-        w.document.write(`<img src="${res.dataUrl}" style="max-width:100%;height:auto" alt="${res.filename}" />`);
+        w.document.write(`<img src="${res.dataUrl}" style="max-width:100%;height:auto" alt="Allegato ricetta importata da email" />`);
       }
     },
     onError: (e: Error) => toast.error(e.message),
