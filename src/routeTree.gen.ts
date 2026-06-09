@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as RegistraFarmaciaRouteImport } from './routes/registra-farmacia'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
@@ -19,6 +20,11 @@ import { Route as AuthenticatedAssistitiIdRouteImport } from './routes/_authenti
 import { Route as AuthenticatedAdminEmailPendingRouteImport } from './routes/_authenticated/admin.email-pending'
 import { Route as ApiPublicHooksSyncInboundHubRouteImport } from './routes/api/public/hooks/sync-inbound-hub'
 
+const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
+  id: '/sitemap.xml',
+  path: '/sitemap.xml',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RegistraFarmaciaRoute = RegistraFarmaciaRouteImport.update({
   id: '/registra-farmacia',
   path: '/registra-farmacia',
@@ -72,6 +78,7 @@ export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
   '/auth': typeof AuthRoute
   '/registra-farmacia': typeof RegistraFarmaciaRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/assistiti': typeof AuthenticatedAssistitiRouteWithChildren
   '/impostazioni': typeof AuthenticatedImpostazioniRoute
   '/admin/email-pending': typeof AuthenticatedAdminEmailPendingRoute
@@ -81,6 +88,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/registra-farmacia': typeof RegistraFarmaciaRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/assistiti': typeof AuthenticatedAssistitiRouteWithChildren
   '/impostazioni': typeof AuthenticatedImpostazioniRoute
   '/': typeof AuthenticatedIndexRoute
@@ -93,6 +101,7 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/registra-farmacia': typeof RegistraFarmaciaRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/_authenticated/assistiti': typeof AuthenticatedAssistitiRouteWithChildren
   '/_authenticated/impostazioni': typeof AuthenticatedImpostazioniRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
@@ -106,6 +115,7 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/registra-farmacia'
+    | '/sitemap.xml'
     | '/assistiti'
     | '/impostazioni'
     | '/admin/email-pending'
@@ -115,6 +125,7 @@ export interface FileRouteTypes {
   to:
     | '/auth'
     | '/registra-farmacia'
+    | '/sitemap.xml'
     | '/assistiti'
     | '/impostazioni'
     | '/'
@@ -126,6 +137,7 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/auth'
     | '/registra-farmacia'
+    | '/sitemap.xml'
     | '/_authenticated/assistiti'
     | '/_authenticated/impostazioni'
     | '/_authenticated/'
@@ -138,11 +150,19 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   RegistraFarmaciaRoute: typeof RegistraFarmaciaRoute
+  SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiPublicHooksSyncInboundHubRoute: typeof ApiPublicHooksSyncInboundHubRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/sitemap.xml': {
+      id: '/sitemap.xml'
+      path: '/sitemap.xml'
+      fullPath: '/sitemap.xml'
+      preLoaderRoute: typeof SitemapDotxmlRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/registra-farmacia': {
       id: '/registra-farmacia'
       path: '/registra-farmacia'
@@ -244,8 +264,19 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   RegistraFarmaciaRoute: RegistraFarmaciaRoute,
+  SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiPublicHooksSyncInboundHubRoute: ApiPublicHooksSyncInboundHubRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
