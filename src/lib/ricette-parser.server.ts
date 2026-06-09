@@ -64,17 +64,20 @@ export function classifyAndExtract(rawText: string): ExtractedDoc | null {
 
   // Ricetta canonica: header SSN o promemoria + NRE + parola prescrizione.
   if ((hasSSNHeader || hasPromemoriaHeader) && hasPrescrizioneWord && nres.length > 0) {
-    const { nome, cognome } = parseAssistitoName(text);
     const medico = parseMedico(text);
     const esenzione = parseEsenzione(text);
     const dataRicetta = parseData(text);
     const cfMedico = parseCfMedico(text);
-    const cf = pickAssistitoCf(text, cognome ?? "", nome ?? "", cfMedico ? [cfMedico] : []);
-
-    if (!nome || !cognome || !medico) {
-      // Dati minimi mancanti: lascia all'AI per il retry.
+    // Regola: NON ESISTE RICETTA SENZA CF ASSISTITO.
+    // Usiamo il CF (prime 6 lettere = consonanti cognome+nome) per scegliere
+    // l'abbinamento corretto nome/cognome dell'assistito ed evitare di
+    // confonderlo con quello del medico.
+    const resolved = resolveAssistitoByCF(text, cfMedico);
+    if (!resolved || !medico) {
+      // Senza CF assistito o senza medico → lascia all'AI per retry.
       return null;
     }
+    const { nome, cognome, cf } = resolved;
 
     return {
       tipo_documento: "ricetta",
@@ -264,6 +267,74 @@ function pickAssistitoCf(text: string, cognome: string, nome: string, exclude: s
   }
   // un solo CF valido e nessun nome di riferimento: lo accettiamo
   return norm[0];
+}
+
+/**
+ * Risolve l'assistito usando il CF come fonte di verità.
+ * 1. Raccoglie tutti i CF presenti nel documento (escluso quello del medico).
+ * 2. Legge l'etichetta "COGNOME E NOME ... ASSISTITO" e prova tutte le
+ *    partizioni cognome/nome dei token estratti.
+ * 3. Per ciascuna partizione confronta cfPrefixFromName con le prime 6
+ *    lettere di ciascun CF candidato. La prima combinazione che combacia
+ *    è l'assistito ufficiale.
+ * 4. Se nessuna combinazione combacia → ritorna null (la ricetta sarà
+ *    rigettata, secondo la regola "niente CF, niente ricetta").
+ */
+function resolveAssistitoByCF(
+  text: string,
+  cfMedico: string | null,
+): { nome: string; cognome: string; cf: string } | null {
+  // 1. CF candidati assistito
+  const cleaned = text.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const cfCandidates = Array.from(
+    new Set(cleaned.match(/[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]/g) ?? []),
+  )
+    .map((c) => normalizeCF(c))
+    .filter((c): c is string => !!c)
+    .filter((c) => !cfMedico || c !== cfMedico);
+  if (cfCandidates.length === 0) return null;
+
+  // 2. Token nome assistito dalla label
+  const raw = takeLineAfter(
+    text,
+    /COGNOME\s+E\s+NOME[^:]*ASSISTITO\s*:\s*/i,
+    /\s{2,}[A-Z][A-Z' .]+:/,
+  );
+  const tokens = (raw ?? "")
+    .replace(/[^A-ZÀ-Ÿ' \-]/gi, " ")
+    .split(/\s+/)
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean);
+
+  // 3. Genera partizioni plausibili (cognome 1..n-1 token, nome il resto)
+  const partitions: { cognome: string; nome: string }[] = [];
+  if (tokens.length >= 2) {
+    for (let k = 1; k < tokens.length; k++) {
+      partitions.push({
+        cognome: tokens.slice(0, k).join(" "),
+        nome: tokens.slice(k).join(" "),
+      });
+      // anche ordine invertito (nome prima, cognome dopo)
+      partitions.push({
+        cognome: tokens.slice(k).join(" "),
+        nome: tokens.slice(0, k).join(" "),
+      });
+    }
+  }
+
+  // 4. Trova la combinazione (CF, partizione) coerente
+  for (const cf of cfCandidates) {
+    const prefix = cf.slice(0, 6);
+    for (const p of partitions) {
+      if (cfPrefixFromName(p.cognome, p.nome) === prefix) {
+        return { nome: p.nome, cognome: p.cognome, cf };
+      }
+    }
+  }
+
+  // 5. Caso unico CF non-medico e nessun nome leggibile → non possiamo
+  //    determinare un nome certo: rigettiamo (regola CF obbligatorio + nome coerente).
+  return null;
 }
 
 // Riesporta utilità CF per chi importa solo questo modulo (test, ecc.)
