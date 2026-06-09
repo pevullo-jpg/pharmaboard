@@ -119,8 +119,9 @@ export function classifyAndExtract(rawText: string): ExtractedDoc | null {
 const NRE_RE = /\b([A-Z0-9]{5})[\s]*?(\d{10})\b/g;
 
 function extractNREs(text: string): { full: string; reg: string }[] {
-  // Normalizza spazi e ricerca su tutta la stringa.
-  const compact = text.toUpperCase();
+  // Pre-normalizza: asterischi (delimitatori barcode "*1900A* *4964766295*")
+  // e altri segni di punteggiatura non-alfanumerica diventano spazi.
+  const compact = text.toUpperCase().replace(/[^A-Z0-9\s]/g, " ");
   const out: { full: string; reg: string }[] = [];
   const seen = new Set<string>();
   let m: RegExpExecArray | null;
