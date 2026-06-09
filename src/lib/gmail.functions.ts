@@ -531,6 +531,24 @@ function normalizeRegionale(raw: string | null | undefined): string | null {
   return /^[A-Z0-9]{5}$/.test(s) ? s : null;
 }
 
+/**
+ * NRE canonico = 15 caratteri = codice regionale (5 alfanumerici) + 10 cifre.
+ * Se l'AI restituisce solo le 10 cifre della parte numerica e abbiamo il
+ * codice regionale separato, li concateniamo. Se il NRE è già nel formato
+ * canonico (15 char alfanumerici) lo restituiamo invariato.
+ * Tutta la pipeline di insert/update/dedup deve passare attraverso questo
+ * helper per evitare di salvare lo stesso NRE in due formati diversi
+ * (es. "4963790679" vs "1900A4963790679") che farebbe sembrare la stessa
+ * ricetta come due righe distinte in dashboard.
+ */
+function canonicalNre(numero: string | null | undefined, regionale: string | null | undefined): string | null {
+  const num = (numero ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const reg = (regionale ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (/^[A-Z0-9]{5}\d{10}$/.test(num)) return num;
+  if (/^\d{10}$/.test(num) && /^\d{4}[A-Z0-9]$/.test(reg)) return reg + num;
+  return null;
+}
+
 async function extractDocumentWithAI(base64: string, mimeType: string): Promise<ExtractedDoc | null> {
   const apiKey = process.env.LOVABLE_API_KEY;
   if (!apiKey) throw new Error("LOVABLE_API_KEY missing");
