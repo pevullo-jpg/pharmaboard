@@ -1026,6 +1026,14 @@ export async function runHubSync(): Promise<{
       continue;
     }
 
+    // Stadio 1: pre-filtro gratis su subject/snippet/filename.
+    const filenames = attachments.map((a) => a.filename ?? "").filter(Boolean);
+    if (!isEmailRelevantForRicetta(subject, msg.snippet ?? "", filenames)) {
+      console.log("Hub sync: email saltata dal pre-filtro keyword", m.id, subject.slice(0, 60));
+      skipped++;
+      continue;
+    }
+
     for (const att of attachments) {
       const attId = att.body?.attachmentId;
       if (!attId) continue;
@@ -1047,19 +1055,22 @@ export async function runHubSync(): Promise<{
       // Filtra documenti non pertinenti.
       if (extracted.tipo_documento === "altro") { skipped++; continue; }
 
-      // Ricetta: deve avere CF + almeno una prescrizione con NRE + barcode Code39.
+      const cfValidCheck = normalizeCF(extracted.codice_fiscale ?? null);
       if (extracted.tipo_documento === "ricetta") {
-        const cfValid = normalizeCF(extracted.codice_fiscale ?? null);
-        const pres = extracted.prescrizioni ?? [];
-        if (!cfValid || pres.length === 0 || !extracted.has_barcode_code39) {
-          console.warn("Ricetta scartata: requisiti minimi mancanti", { cfValid: !!cfValid, pres: pres.length, barcode: extracted.has_barcode_code39 });
+        if (!isValidRicettaCanonica(extracted, cfValidCheck)) {
+          console.warn("Ricetta scartata: requisiti canonici mancanti", {
+            cf: !!cfValidCheck,
+            medico: !!(extracted.medico ?? "").trim(),
+            keyword: !!extracted.keyword_prescrizione_trovata,
+            barcode: !!extracted.has_barcode_code39,
+            pres: (extracted.prescrizioni ?? []).length,
+          });
           skipped++;
           continue;
         }
       } else if (extracted.tipo_documento === "sintesi") {
-        const cfValid = normalizeCF(extracted.codice_fiscale ?? null);
         const pres = extracted.prescrizioni ?? [];
-        if (!cfValid || pres.length === 0) { skipped++; continue; }
+        if (!cfValidCheck || pres.length === 0) { skipped++; continue; }
       }
 
       const cfValid = normalizeCF(extracted.codice_fiscale ?? null);
