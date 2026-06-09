@@ -36,7 +36,7 @@ function AssistitoDetail() {
       if (res.mimeType === "application/pdf") {
         w.document.write(`<iframe src="${res.dataUrl}" style="border:0;width:100%;height:100vh"></iframe>`);
       } else {
-        w.document.write(`<img src="${res.dataUrl}" style="max-width:100%;height:auto" alt="${res.filename}" />`);
+        w.document.write(`<img src="${res.dataUrl}" style="max-width:100%;height:auto" alt="Allegato ricetta importata da email" />`);
       }
     },
     onError: (e: Error) => toast.error(e.message),
@@ -156,6 +156,7 @@ function AssistitoDetail() {
                       size="sm"
                       variant="outline"
                       title="Apri allegato"
+                      aria-label="Apri allegato della ricetta"
                       disabled={openMutation.isPending && openMutation.variables === r.id}
                       onClick={() => openMutation.mutate(r.id)}
                     >
@@ -167,6 +168,7 @@ function AssistitoDetail() {
                       size="sm"
                       variant="outline"
                       title="Elimina email e ricetta"
+                      aria-label="Elimina email Gmail e ricetta"
                       disabled={delEmailMutation.isPending && delEmailMutation.variables === r.id}
                       onClick={() => {
                         if (window.confirm("Spostare l'email nel cestino di Gmail ed eliminare la ricetta?")) {
@@ -181,12 +183,12 @@ function AssistitoDetail() {
                   </>
                 )}
                 {r.stato === "nuova" && (
-                  <Button size="sm" variant="outline" onClick={async () => {
+                  <Button size="sm" variant="outline" aria-label="Segna ricetta come lavorata" onClick={async () => {
                     await supabase.from("ricette").update({ stato: "lavorata" }).eq("id", r.id);
                     invalidate("ricette"); toast.success("Ricetta lavorata");
                   }}><Check className="size-4" /></Button>
                 )}
-                <Button size="sm" variant="ghost" onClick={async () => {
+                <Button size="sm" variant="ghost" aria-label="Elimina ricetta" onClick={async () => {
                   await supabase.from("ricette").delete().eq("id", r.id);
                   invalidate("ricette"); toast.success("Eliminata");
                 }}><Trash2 className="size-4" /></Button>

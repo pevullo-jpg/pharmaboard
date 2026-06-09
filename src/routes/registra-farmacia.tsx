@@ -12,7 +12,17 @@ import { toast } from "sonner";
 
 export const Route = createFileRoute("/registra-farmacia")({
   ssr: false,
-  head: () => ({ meta: [{ title: "Registra la tua farmacia · Farmacia Dashboard" }] }),
+  head: () => ({
+    meta: [
+      { title: "Registra la tua farmacia · Farmacia Dashboard" },
+      { name: "description", content: "Iscrivi la tua farmacia a Farmacia Dashboard: crea l'account operatore e attendi l'attivazione del nostro team." },
+      { property: "og:title", content: "Registra la tua farmacia · Farmacia Dashboard" },
+      { property: "og:description", content: "Modulo di registrazione per nuove farmacie. Attivazione manuale dopo verifica." },
+      { property: "og:url", content: "https://pharmaboard.lovable.app/registra-farmacia" },
+      { property: "og:type", content: "website" },
+    ],
+    links: [{ rel: "canonical", href: "https://pharmaboard.lovable.app/registra-farmacia" }],
+  }),
   component: RegisterPage,
 });
 
