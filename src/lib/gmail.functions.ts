@@ -764,8 +764,14 @@ async function callAIExtraction(apiKey: string, prompt: string, base64: string, 
       const matching = pickCFForName(cfs, cog, nom);
       if (matching) {
         parsed.codice_fiscale = matching;
+      } else if (cfNorm && cfMatchesName(cfNorm, nom, cog)) {
+        // CF coerente se cognome/nome sono invertiti → applica lo swap
+        parsed.cognome = nom;
+        parsed.nome = cog;
+        parsed.codice_fiscale = cfNorm;
       } else if (cfNorm && !cfMatchesName(cfNorm, cog, nom)) {
-        // CF valido ma incoerente con nome → meglio scartare che salvare quello del medico
+        // CF valido ma incoerente: probabilmente è il CF del medico.
+        // Regola: nessuna ricetta senza CF assistito coerente → scarta CF.
         parsed.codice_fiscale = null;
       } else {
         parsed.codice_fiscale = cfNorm;
