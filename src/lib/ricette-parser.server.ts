@@ -83,7 +83,7 @@ export function classifyAndExtract(rawText: string): ExtractedDoc | null {
   // --- RICETTA / PROMEMORIA ---
   if (hasRicettaLabels || hasPromemoriaHeader || hasSSNHeader) {
     const cfMedico = parseCfMedico(text);
-    const medico = parseField(text, "MEDICO_NOME");
+    const medico = sanitizeMedico(parseField(text, "MEDICO_NOME"));
     const esenzione = parseEsenzione(text);
     const dataRicetta = parseData(text);
     const resolved = resolveAssistitoByCF(text, cfMedico);
