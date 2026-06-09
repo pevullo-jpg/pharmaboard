@@ -1,42 +1,67 @@
-## Diagnosi (da DB reale)
+## Problema
 
-**Lombardo Eliana — "due copie della stessa ricetta"**
-Dalla query DB risulta che la stessa email (`19ea6c6f6e0089f7`) ha generato 3 righe:
-- `4963790679` (10 cifre, parser AI vecchio)
-- `4963790706` (10 cifre, parser AI vecchio)
-- `1900A4963790679` (15 char, parser deterministico nuovo — è la sintesi)
+La tabella `assistiti` ha un vincolo `UNIQUE(codice_fiscale)` **globale**. Questo impedisce che lo stesso codice fiscale possa esistere in più farmacie, ma il modello reale prevede che ogni farmacia abbia il proprio record (con dati propri: medico, esenzione, note, telefono, debiti, anticipi, prenotazioni, ricette).
 
-Lo stesso NRE viene memorizzato in due formati diversi (10 cifre vs `codice_regionale + 10 cifre`), quindi il dedup `eq("numero_ricetta", ...)` non li riconosce come duplicati. La sintesi inserisce `1900A4963790679` mentre la ricetta full aveva `4963790679`: sembrano "due copie" perché stessa persona, stessa data, stesso farmaco visivo, ma chiave diversa.
+Conseguenze osservate:
+- "Non vengono creati assistiti": l'insert da `Nuovo assistito` non passa `farmacia_id` esplicito e quindi viola la RLS (la policy richiede `farmacia_id = current_farmacia_id(...)`).
+- "Lombardo Eliana — due copie della stessa ricetta in dashboard": quando il CF esiste già in un'altra farmacia, `resolveOrCreateAssistito` non riesce a creare il record nella farmacia corrente (UNIQUE globale) e ritorna `null`; le ricette vengono salvate con `assistito_id = null`, perdono i raggruppamenti e i badge, e finiscono renderizzate come righe separate.
+- Badge assenti sulle righe in dashboard: stessa radice (assistito mancante nella farmacia corrente).
 
-Stesso pattern su TODARO (`4964740622` vs `1900A4964740622`).
+## Cosa fare
 
-**Assistito non collegato sulla riga "sintesi"**
-La riga sintesi di TODARO (`b08d2363`) ha `assistito_id = NULL` anche se l'assistito esiste già (creato 15s prima dalla ricetta full). Il bug è nel parser sintesi: ritorna `nome: null, cognome: null`, quindi `resolveOrCreateAssistito` con cf valido dovrebbe trovare la riga via `byCf`. Va indagato perché non aggancia (probabile race / log da aggiungere).
+### 1) Migration sul DB
 
-**Assistiti "non creati"**
-In realtà gli assistiti vengono creati (33 in DB, l'ultimo oggi alle 07:33). Sospetto che il problema sia che per le ricette nuove di oggi gli assistiti non vengono aggiunti, oppure è un fraintendimento con il punto sopra (sintesi orfana fa sembrare la ricetta "non associata"). → vedi domanda 1.
+- Rimuovere `UNIQUE(codice_fiscale)` globale su `public.assistiti`.
+- Aggiungere `UNIQUE(farmacia_id, codice_fiscale)` (parziale, solo dove `codice_fiscale IS NOT NULL`).
+- Aggiungere un trigger `BEFORE INSERT` su `public.assistiti` che, se `farmacia_id` è NULL, lo imposta a `public.current_farmacia_id(auth.uid())`. Così l'insert dal client non deve preoccuparsi di passarlo e la RLS continua a validarlo.
+- Bonifica dati: nessun cambio distruttivo, ma se esistono ricette con `codice_fiscale` valorizzato e `assistito_id = NULL`, fare un UPDATE che le ricollega all'assistito della stessa farmacia con lo stesso CF (se esiste).
 
-**Flag non mostrati**
-I badge `DebitiBadge / AnticipiBadge / PrenotazioniBadge` fanno una `useQuery` per ogni riga assistito, non leggono dai dati embedded della query `assistiti`. Possibile causa: 1) RLS che blocca la SELECT su anticipi/prenotazioni/debiti per la sessione, 2) il `farmacia_id` non è popolato sulle righe figlie, 3) il dato embedded `anticipi/debiti/prenotazioni` non viene mai usato. → vedi domanda 2.
+### 2) Codice client/server
 
-## Modifiche
+- `src/routes/_authenticated/assistiti.tsx`: non serve modificare l'insert (il trigger pensa al `farmacia_id`), ma aggiungere un messaggio d'errore user-friendly se l'insert fallisce per duplicato `(farmacia_id, codice_fiscale)` ("Esiste già un assistito con questo codice fiscale in questa farmacia").
+- `src/lib/gmail.functions.ts` (`resolveOrCreateAssistito`): la logica è già scoped per `(farmacia_id, codice_fiscale)`, quindi una volta rimosso l'UNIQUE globale funzionerà. Nessuna modifica funzionale necessaria; lascio il retry-on-race com'è.
+- Niente da cambiare su `ricette`/`debiti`/`anticipi`/`prenotazioni`: già hanno `farmacia_id` + FK su `assistiti(id)` con `ON DELETE CASCADE/SET NULL` e RLS per tenant.
 
-### 1) Canonicalizzazione NRE (fix duplicato Lombardo)
-In `src/lib/gmail.functions.ts`:
-- Helper `canonicalNre(numero, regionale)`: se `numero` è 10 cifre e `regionale` è 5 char alfanumerici, ritorna `regionale + numero`. Se `numero` è già 15 char, ritorna così.
-- Applicato in `runHubSync` e `reprocessExistingRicette` prima dell'insert/update e prima della dedup.
-- Backfill via SQL: per le ricette con `numero_ricetta` di 10 cifre e `codice_regionale` di 5 char, aggiornare a `regionale || numero`. Poi rimuovere duplicati esatti su `(farmacia_id, numero_ricetta)` tenendo la più vecchia (con assistito_id valido).
+### 3) Verifica post-fix
 
-### 2) Riallineo sintesi orfane (TODARO case)
-In `runHubSync`, dopo l'insert della prescrizione, se `assistitoId` è null e `cfValid` esiste, ritenta un lookup pulito (in caso di race) prima di salvare. Inoltre, dopo aver processato tutte le prescrizioni di un'email, fare un UPDATE finale: `ricette set assistito_id = (select id from assistiti where cf = ... and farmacia_id = ...) where assistito_id is null`.
+- Creare manualmente un assistito dal pannello (regressione risolta).
+- Eseguire un import Gmail su una farmacia diversa con un CF già presente altrove: deve creare un nuovo `assistiti` row nella farmacia corrente e collegare le ricette correttamente.
+- Controllare che i badge (debiti/anticipi/prenotazioni) tornino sulle righe della dashboard.
 
-### 3) Logging diagnostico assistiti
-Aggiungere `console.log` in `resolveOrCreateAssistito` per ogni path (`byCf hit`, `created`, `skipped no-name`) così possiamo capire la prossima regressione dai logs server.
+## Dettaglio tecnico (SQL della migration)
 
-### 4) Flag badges
-Da chiarire (vedi domande).
+```sql
+ALTER TABLE public.assistiti DROP CONSTRAINT assistiti_codice_fiscale_key;
 
-## Domande prima di implementare
+CREATE UNIQUE INDEX assistiti_farmacia_cf_uniq
+  ON public.assistiti (farmacia_id, codice_fiscale)
+  WHERE codice_fiscale IS NOT NULL;
 
-1. **Assistiti "non creati"**: per quale ricetta specifica ti aspettavi un nuovo assistito e non è apparso? Mi dai un nome/CF o lo screenshot della dashboard ricette → la creo nel debug.
-2. **Flag**: quali flag intendi? (a) i badge €/anticipi/prenotazioni colorati sulla riga assistito, (b) un flag DPC sulle ricette, (c) altro? Se è (a), i dati embedded (`debiti/anticipi/prenotazioni`) sono già nella query principale ma i badge fanno il loro fetch separato — vuoi che usi solo i dati embedded (più veloce, meno query) o lasciamo il fetch per riga?
+CREATE OR REPLACE FUNCTION public.set_assistiti_farmacia_id()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF NEW.farmacia_id IS NULL THEN
+    NEW.farmacia_id := public.current_farmacia_id(auth.uid());
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER assistiti_set_farmacia_id
+  BEFORE INSERT ON public.assistiti
+  FOR EACH ROW EXECUTE FUNCTION public.set_assistiti_farmacia_id();
+
+-- Bonifica: ricollega ricette orfane all'assistito della stessa farmacia/CF
+UPDATE public.ricette r
+SET assistito_id = a.id
+FROM public.assistiti a
+WHERE r.assistito_id IS NULL
+  AND r.codice_fiscale IS NOT NULL
+  AND a.farmacia_id = r.farmacia_id
+  AND a.codice_fiscale = r.codice_fiscale;
+```
+
+## Cosa NON cambia
+
+- Schema `ricette`, `debiti`, `anticipi`, `prenotazioni`, `farmacia_members`, RLS esistenti.
+- Logica di dedup ricette per `(farmacia_id, numero_ricetta)`.
