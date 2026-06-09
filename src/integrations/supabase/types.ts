@@ -411,6 +411,7 @@ export type Database = {
         Row: {
           assistito_id: string | null
           codice_fiscale: string | null
+          codice_regionale: string | null
           cognome: string | null
           created_at: string
           data_ricetta: string | null
@@ -428,11 +429,13 @@ export type Database = {
           source: string
           source_email_id: string | null
           stato: string
+          tipo_documento: string
           updated_at: string
         }
         Insert: {
           assistito_id?: string | null
           codice_fiscale?: string | null
+          codice_regionale?: string | null
           cognome?: string | null
           created_at?: string
           data_ricetta?: string | null
@@ -450,11 +453,13 @@ export type Database = {
           source?: string
           source_email_id?: string | null
           stato?: string
+          tipo_documento?: string
           updated_at?: string
         }
         Update: {
           assistito_id?: string | null
           codice_fiscale?: string | null
+          codice_regionale?: string | null
           cognome?: string | null
           created_at?: string
           data_ricetta?: string | null
@@ -472,6 +477,7 @@ export type Database = {
           source?: string
           source_email_id?: string | null
           stato?: string
+          tipo_documento?: string
           updated_at?: string
         }
         Relationships: [

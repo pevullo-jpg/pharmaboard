@@ -471,6 +471,132 @@ const ExtractedSchema = z.object({
   dpc: z.boolean().nullable().optional(),
 });
 
+const PrescrizioneSchema = z.object({
+  numero_ricetta: z.string().nullable().optional(),
+  codice_regionale: z.string().nullable().optional(),
+});
+const ExtractedDocSchema = z.object({
+  tipo_documento: z.enum(["ricetta", "sintesi", "altro"]).default("altro"),
+  has_barcode_code39: z.boolean().nullable().optional(),
+  nome: z.string().nullable().optional(),
+  cognome: z.string().nullable().optional(),
+  codice_fiscale: z.string().nullable().optional(),
+  medico: z.string().nullable().optional(),
+  esenzione: z.string().nullable().optional(),
+  data_ricetta: z.string().nullable().optional(),
+  dpc: z.boolean().nullable().optional(),
+  prescrizioni: z.array(PrescrizioneSchema).default([]),
+});
+export type ExtractedDoc = z.infer<typeof ExtractedDocSchema>;
+
+const NRE_REGEX = /\b\d{15}\b/;
+function normalizeNRE(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const s = String(raw).replace(/\D/g, "");
+  return s.length === 15 ? s : null;
+}
+function normalizeRegionale(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const s = String(raw).replace(/[^A-Z0-9]/gi, "").toUpperCase();
+  return s.length >= 6 ? s : null;
+}
+
+async function extractDocumentWithAI(base64: string, mimeType: string): Promise<ExtractedDoc | null> {
+  const apiKey = process.env.LOVABLE_API_KEY;
+  if (!apiKey) throw new Error("LOVABLE_API_KEY missing");
+
+  const prompt = `Sei un OCR specializzato nei documenti del SSN italiano. Devi classificare il documento e estrarre i dati.
+
+TIPI DI DOCUMENTO:
+- "ricetta": ricetta medica SSN (cartacea o promemoria DEM). Deve contenere TUTTI questi elementi essenziali:
+    a) codice fiscale dell'ASSISTITO (16 caratteri),
+    b) codice regionale (alfanumerico, sopra/accanto al barcode regionale),
+    c) codice NRE (15 cifre, identificativo nazionale univoco della ricetta),
+    d) almeno UN barcode in formato Code39 (linee verticali nere) associato a NRE o codice regionale.
+  Se MANCA anche solo uno tra CF, codice regionale, NRE o barcode Code39 → NON è una ricetta, classifica come "altro".
+- "sintesi": foglio/elenco di riepilogo che riporta SOLO il CF dell'assistito e una o più coppie (codice regionale + NRE), senza i farmaci. Tipicamente prodotto dal medico per liste promemoria.
+- "altro": qualsiasi altro documento (carta d'identità, tessera sanitaria, scontrini, referti, lettere, brochure). Anche un documento con solo il CF ma SENZA codici regionali+NRE deve essere "altro".
+
+Restituisci SOLO un JSON puro, senza markdown, in questo formato:
+{
+  "tipo_documento": "ricetta" | "sintesi" | "altro",
+  "has_barcode_code39": boolean,            // true se vedi almeno un barcode Code39
+  "nome": string|null,                      // nome assistito (solo per ricetta/sintesi)
+  "cognome": string|null,                   // cognome assistito
+  "codice_fiscale": string|null,            // CF assistito (16 char). NON il CF del medico
+  "medico": string|null,                    // medico prescrittore (solo ricetta)
+  "esenzione": string|null,                 // codice esenzione (es "007","C05"), null se assente
+  "data_ricetta": string|null,              // ISO YYYY-MM-DD (data prescrizione)
+  "dpc": boolean,                           // true se compare la sigla DPC
+  "prescrizioni": [                         // una entry per ricetta nel documento (per "ricetta" di solito 1)
+    { "numero_ricetta": "<15 cifre NRE>", "codice_regionale": "<codice regionale>" }
+  ]
+}
+
+REGOLE CRITICHE codice_fiscale:
+- Sulle ricette SSN ci sono spesso DUE CF: assistito (in alto, "Cognome e nome dell'assistito" / "Codice Fiscale Assistito") e medico (vicino alla firma). Restituisci SOLO quello dell'assistito.
+- Le prime 6 lettere del CF devono essere coerenti con cognome+nome (cognome: 3 consonanti in ordine poi vocali, padding X; nome: se ha >=4 consonanti prendi 1a,3a,4a, altrimenti consonanti+vocali, padding X). Esempio: ROSSI MARIO → RSSMRA.
+- Se il CF letto non rispetta queste 6 lettere, è probabilmente del medico: NON restituirlo, cerca il vero CF dell'assistito.
+- Se non riesci a leggere un CF di 16 caratteri valido, metti null. NON inventare.
+
+REGOLE per "prescrizioni":
+- "numero_ricetta" è il codice NRE (15 cifre numeriche). Solo cifre, niente spazi.
+- "codice_regionale" è alfanumerico (lettere+cifre). Senza spazi.
+- Se sul documento ci sono più NRE diversi (caso tipico "sintesi"), restituiscili TUTTI come elementi separati.
+- Se il documento non è ricetta né sintesi, restituisci [] e tipo_documento "altro".
+
+Rispondi SOLO con il JSON.`;
+
+  const first = await callDocExtraction(apiKey, prompt, base64, mimeType, "google/gemini-2.5-flash");
+  if (first && first.tipo_documento !== "altro" && first.codice_fiscale && cfMatchesName(first.codice_fiscale, first.cognome ?? "", first.nome ?? "")) {
+    return first;
+  }
+  const retry = await callDocExtraction(apiKey, prompt, base64, mimeType, "google/gemini-2.5-pro");
+  return retry ?? first;
+}
+
+async function callDocExtraction(apiKey: string, prompt: string, base64: string, mimeType: string, model: string): Promise<ExtractedDoc | null> {
+  const dataUrl = `data:${mimeType};base64,${base64}`;
+  const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: "user", content: [
+        { type: "text", text: prompt },
+        { type: "image_url", image_url: { url: dataUrl } },
+      ]}],
+    }),
+  });
+  if (!res.ok) {
+    console.error(`AI doc parse failed (${model})`, res.status, await res.text());
+    return null;
+  }
+  const json = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+  const content = json.choices?.[0]?.message?.content?.trim() ?? "";
+  const cleaned = content.replace(/^```json\s*/i, "").replace(/^```\s*/i, "").replace(/```$/i, "").trim();
+  try {
+    const parsed = ExtractedDocSchema.parse(JSON.parse(cleaned));
+    parsed.codice_fiscale = normalizeCF(parsed.codice_fiscale ?? null);
+    parsed.prescrizioni = (parsed.prescrizioni ?? [])
+      .map((p) => ({
+        numero_ricetta: normalizeNRE(p.numero_ricetta ?? null),
+        codice_regionale: normalizeRegionale(p.codice_regionale ?? null),
+      }))
+      .filter((p) => p.numero_ricetta);
+    // CF incoerente col nome → scarta CF (probabile medico)
+    if (parsed.codice_fiscale && !cfMatchesName(parsed.codice_fiscale, parsed.cognome ?? "", parsed.nome ?? "")) {
+      const cfs = extractValidCFs(cleaned);
+      const matching = pickCFForName(cfs, parsed.cognome ?? "", parsed.nome ?? "");
+      parsed.codice_fiscale = matching ?? null;
+    }
+    return parsed;
+  } catch {
+    console.error(`AI doc JSON parse failed (${model}):`, cleaned.slice(0, 200));
+    return null;
+  }
+}
+
 async function extractRicettaWithAI(base64: string, mimeType: string): Promise<z.infer<typeof ExtractedSchema> | null> {
   const apiKey = process.env.LOVABLE_API_KEY;
   if (!apiKey) throw new Error("LOVABLE_API_KEY missing");
@@ -725,14 +851,31 @@ export async function runHubSync(): Promise<{
       const base64 = base64UrlToBase64(attData.data);
 
       const mime = att.mimeType ?? "application/octet-stream";
-      const extracted = await extractRicettaWithAI(base64, mime);
-      if (!extracted) continue;
+      const extracted = await extractDocumentWithAI(base64, mime);
+      if (!extracted) { skipped++; continue; }
 
-      let assistitoId: string | null = null;
+      // Filtra documenti non pertinenti.
+      if (extracted.tipo_documento === "altro") { skipped++; continue; }
+
+      // Ricetta: deve avere CF + almeno una prescrizione con NRE + barcode Code39.
+      if (extracted.tipo_documento === "ricetta") {
+        const cfValid = normalizeCF(extracted.codice_fiscale ?? null);
+        const pres = extracted.prescrizioni ?? [];
+        if (!cfValid || pres.length === 0 || !extracted.has_barcode_code39) {
+          console.warn("Ricetta scartata: requisiti minimi mancanti", { cfValid: !!cfValid, pres: pres.length, barcode: extracted.has_barcode_code39 });
+          skipped++;
+          continue;
+        }
+      } else if (extracted.tipo_documento === "sintesi") {
+        const cfValid = normalizeCF(extracted.codice_fiscale ?? null);
+        const pres = extracted.prescrizioni ?? [];
+        if (!cfValid || pres.length === 0) { skipped++; continue; }
+      }
+
       const cfValid = normalizeCF(extracted.codice_fiscale ?? null);
       const nome = (extracted.nome ?? "").trim();
       const cognome = (extracted.cognome ?? "").trim();
-      assistitoId = await resolveOrCreateAssistito({
+      const assistitoId = await resolveOrCreateAssistito({
         farmaciaId,
         cf: cfValid,
         nome,
@@ -742,27 +885,47 @@ export async function runHubSync(): Promise<{
       });
 
       const isDpc = !!extracted.dpc;
-      const { error: rErr } = await supabaseAdmin.from("ricette").insert({
-        farmacia_id: farmaciaId,
-        assistito_id: assistitoId,
-        nome: extracted.nome ?? null,
-        cognome: extracted.cognome ?? null,
-        codice_fiscale: cfValid,
-        medico: extracted.medico ?? null,
-        esenzione: extracted.esenzione ?? null,
-        data_ricetta: extracted.data_ricetta ?? null,
-        numero_ricetta: extracted.numero_ricetta ?? null,
-        dpc: isDpc,
-        is_dpc_alert: isDpc,
-        source: "gmail",
-        source_email_id: m.id,
-        stato: "nuova",
-      });
-      if (rErr) {
-        console.error("Insert ricetta failed", rErr.message);
-        continue;
+      const tipo = extracted.tipo_documento;
+
+      for (const p of extracted.prescrizioni ?? []) {
+        if (!p.numero_ricetta) continue;
+        // Dedup per NRE: una ricetta con stesso NRE non va reimportata.
+        const { data: existsNre } = await supabaseAdmin
+          .from("ricette")
+          .select("id")
+          .eq("farmacia_id", farmaciaId)
+          .eq("numero_ricetta", p.numero_ricetta)
+          .limit(1);
+        if (existsNre && existsNre.length > 0) {
+          // Sintesi: salta sempre. Ricetta full: salta comunque (è la stessa ricetta).
+          skipped++;
+          continue;
+        }
+
+        const { error: rErr } = await supabaseAdmin.from("ricette").insert({
+          farmacia_id: farmaciaId,
+          assistito_id: assistitoId,
+          nome: extracted.nome ?? null,
+          cognome: extracted.cognome ?? null,
+          codice_fiscale: cfValid,
+          medico: extracted.medico ?? null,
+          esenzione: extracted.esenzione ?? null,
+          data_ricetta: extracted.data_ricetta ?? null,
+          numero_ricetta: p.numero_ricetta,
+          codice_regionale: p.codice_regionale ?? null,
+          tipo_documento: tipo,
+          dpc: isDpc,
+          is_dpc_alert: isDpc,
+          source: "gmail",
+          source_email_id: m.id,
+          stato: "nuova",
+        });
+        if (rErr) {
+          console.error("Insert ricetta failed", rErr.message);
+          continue;
+        }
+        importedRicette++;
       }
-      importedRicette++;
     }
   }
 
