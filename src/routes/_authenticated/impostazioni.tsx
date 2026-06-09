@@ -1,9 +1,9 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Stethoscope, ChevronRight, ChevronDown, Package } from "lucide-react";
+import { Stethoscope, ChevronRight, ChevronDown, Package, Mail } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { format } from "date-fns";
 import { it } from "date-fns/locale";
@@ -19,6 +19,26 @@ function ImpostazioniPage() {
       <div>
         <h1 className="text-3xl font-semibold tracking-tight">Gestione anticipi</h1>
       </div>
+
+      <Link
+        to="/_authenticated/impostazioni_/inoltro-email"
+        className="block"
+      >
+        <Card className="glass-card p-5 hover:bg-sidebar-accent/30 transition-colors">
+          <div className="flex items-center gap-4">
+            <div className="size-12 rounded-xl bg-gradient-to-br from-primary to-accent grid place-items-center shrink-0 accent-glow">
+              <Mail className="size-6 text-primary-foreground" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h2 className="font-semibold">Inoltro email ricette</h2>
+              <p className="text-sm text-muted-foreground mt-0.5">
+                Configura l'indirizzo di inoltro e rielabora le ricette già importate
+              </p>
+            </div>
+            <ChevronRight className="size-5 text-muted-foreground shrink-0" />
+          </div>
+        </Card>
+      </Link>
 
       <MediciSection />
     </div>
