@@ -600,6 +600,31 @@ Rispondi SOLO con il JSON.`;
   return retry ?? first;
 }
 
+/**
+ * Estrae da un allegato cercando prima la via deterministica (parser PDF
+ * + regex sulle etichette SSN). Se il PDF è scansione pura o ambiguo,
+ * oppure se è una immagine, fa fallback sull'AI vision.
+ */
+async function extractDocumentFromAttachment(base64: string, mimeType: string): Promise<ExtractedDoc | null> {
+  if (mimeType === "application/pdf") {
+    try {
+      const bin = atob(base64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const { parsePdfRicetta } = await import("./ricette-parser.server");
+      const det = await parsePdfRicetta(bytes);
+      if (det) {
+        console.log("Parser deterministico ok:", det.tipo_documento, det.prescrizioni?.length ?? 0, "NRE");
+        return det;
+      }
+      console.log("Parser deterministico: ambiguo o PDF immagine, fallback AI");
+    } catch (e) {
+      console.warn("Parser deterministico fallito, fallback AI:", e instanceof Error ? e.message : e);
+    }
+  }
+  return extractDocumentWithAI(base64, mimeType);
+}
+
 async function callDocExtraction(apiKey: string, prompt: string, base64: string, mimeType: string, model: string): Promise<ExtractedDoc | null> {
   const dataUrl = `data:${mimeType};base64,${base64}`;
   const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
