@@ -469,16 +469,17 @@ function isEmailRelevantForRicetta(subject: string, snippet: string, filenames: 
 }
 
 /**
- * Una ricetta canonica salvabile DEVE avere CF assistito + nome+cognome assistito
- * + medico + parola "prescrizione" trovata + almeno un NRE + barcode Code39.
- * Se manca anche uno solo → declassa a "altro".
+ * Una ricetta canonica salvabile DEVE avere: nome+cognome assistito,
+ * medico, parola "prescrizione" e almeno un NRE valido.
+ * Il CF assistito è OPZIONALE: spesso compare solo sul promemoria DEM e non
+ * sulla ricetta cartacea; in quel caso la ricetta resta orfana e verrà
+ * collegata all'assistito al primo merge che fornisce il CF.
+ * Il barcode Code39 NON è richiesto: l'AI lo rileva in modo inaffidabile.
  */
-function isValidRicettaCanonica(ext: ExtractedDoc, cfValid: string | null): boolean {
-  if (!cfValid) return false;
+function isValidRicettaCanonica(ext: ExtractedDoc, _cfValid: string | null): boolean {
   if (!(ext.nome ?? "").trim() || !(ext.cognome ?? "").trim()) return false;
   if (!(ext.medico ?? "").trim()) return false;
   if (!ext.keyword_prescrizione_trovata) return false;
-  if (!ext.has_barcode_code39) return false;
   const pres = ext.prescrizioni ?? [];
   if (pres.length === 0 || !pres.some((p) => p.numero_ricetta)) return false;
   return true;
@@ -515,17 +516,19 @@ const ExtractedDocSchema = z.object({
 });
 export type ExtractedDoc = z.infer<typeof ExtractedDocSchema>;
 
-const NRE_REGEX = /\b\d{15}\b/;
+// NRE italiano = 5 caratteri alfanumerici (codice regionale, es. "1900A")
+// + 10 cifre numeriche. Lunghezza totale: 15. NON è interamente numerico.
+const NRE_REGEX = /\b[A-Z0-9]{5}\d{10}\b/;
 function normalizeNRE(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  const s = String(raw).replace(/\D/g, "");
-  return s.length === 15 ? s : null;
+  const s = String(raw).toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return /^[A-Z0-9]{5}\d{10}$/.test(s) ? s : null;
 }
 function normalizeRegionale(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  // Il codice regionale è composto da 5 cifre numeriche esatte.
-  const s = String(raw).replace(/\D/g, "");
-  return s.length === 5 ? s : null;
+  // 5 caratteri alfanumerici esatti (es. "1900A").
+  const s = String(raw).toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return /^[A-Z0-9]{5}$/.test(s) ? s : null;
 }
 
 async function extractDocumentWithAI(base64: string, mimeType: string): Promise<ExtractedDoc | null> {
