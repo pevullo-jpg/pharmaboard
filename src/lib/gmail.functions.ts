@@ -486,6 +486,8 @@ const ExtractedDocSchema = z.object({
   data_ricetta: z.string().nullable().optional(),
   dpc: z.boolean().nullable().optional(),
   prescrizioni: z.array(PrescrizioneSchema).default([]),
+  keyword_prescrizione_trovata: z.boolean().nullable().optional(),
+  confidence: z.enum(["low", "medium", "high"]).nullable().optional(),
 });
 export type ExtractedDoc = z.infer<typeof ExtractedDocSchema>;
 
