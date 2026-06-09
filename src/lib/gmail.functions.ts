@@ -129,10 +129,16 @@ async function resolveOrCreateAssistito(args: {
     .eq("farmacia_id", farmaciaId)
     .eq("codice_fiscale", cf)
     .maybeSingle();
-  if (byCf) return byCf.id;
+  if (byCf) {
+    console.log("resolveAssistito: hit by CF", cf, "→", byCf.id);
+    return byCf.id;
+  }
 
   // 2) Crea nuovo: serve almeno cognome o nome per intestare il record
-  if (!cognome && !nome) return null;
+  if (!cognome && !nome) {
+    console.warn("resolveAssistito: skip create — CF presente ma nome/cognome assenti", cf);
+    return null;
+  }
   const { data: created, error: cErr } = await supabaseAdmin
     .from("assistiti")
     .insert({
@@ -157,6 +163,7 @@ async function resolveOrCreateAssistito(args: {
     if (again) return again.id;
     return null;
   }
+  console.log("resolveAssistito: created", cf, cognome, nome, "→", created?.id);
   return created?.id ?? null;
 }
 
