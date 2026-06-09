@@ -469,16 +469,17 @@ function isEmailRelevantForRicetta(subject: string, snippet: string, filenames: 
 }
 
 /**
- * Una ricetta canonica salvabile DEVE avere CF assistito + nome+cognome assistito
- * + medico + parola "prescrizione" trovata + almeno un NRE + barcode Code39.
- * Se manca anche uno solo → declassa a "altro".
+ * Una ricetta canonica salvabile DEVE avere: nome+cognome assistito,
+ * medico, parola "prescrizione" e almeno un NRE valido.
+ * Il CF assistito è OPZIONALE: spesso compare solo sul promemoria DEM e non
+ * sulla ricetta cartacea; in quel caso la ricetta resta orfana e verrà
+ * collegata all'assistito al primo merge che fornisce il CF.
+ * Il barcode Code39 NON è richiesto: l'AI lo rileva in modo inaffidabile.
  */
-function isValidRicettaCanonica(ext: ExtractedDoc, cfValid: string | null): boolean {
-  if (!cfValid) return false;
+function isValidRicettaCanonica(ext: ExtractedDoc, _cfValid: string | null): boolean {
   if (!(ext.nome ?? "").trim() || !(ext.cognome ?? "").trim()) return false;
   if (!(ext.medico ?? "").trim()) return false;
   if (!ext.keyword_prescrizione_trovata) return false;
-  if (!ext.has_barcode_code39) return false;
   const pres = ext.prescrizioni ?? [];
   if (pres.length === 0 || !pres.some((p) => p.numero_ricetta)) return false;
   return true;
@@ -515,17 +516,19 @@ const ExtractedDocSchema = z.object({
 });
 export type ExtractedDoc = z.infer<typeof ExtractedDocSchema>;
 
-const NRE_REGEX = /\b\d{15}\b/;
+// NRE italiano = 5 caratteri alfanumerici (codice regionale, es. "1900A")
+// + 10 cifre numeriche. Lunghezza totale: 15. NON è interamente numerico.
+const NRE_REGEX = /\b[A-Z0-9]{5}\d{10}\b/;
 function normalizeNRE(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  const s = String(raw).replace(/\D/g, "");
-  return s.length === 15 ? s : null;
+  const s = String(raw).toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return /^[A-Z0-9]{5}\d{10}$/.test(s) ? s : null;
 }
 function normalizeRegionale(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  // Il codice regionale è composto da 5 cifre numeriche esatte.
-  const s = String(raw).replace(/\D/g, "");
-  return s.length === 5 ? s : null;
+  // 5 caratteri alfanumerici esatti (es. "1900A").
+  const s = String(raw).toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return /^[A-Z0-9]{5}$/.test(s) ? s : null;
 }
 
 async function extractDocumentWithAI(base64: string, mimeType: string): Promise<ExtractedDoc | null> {
@@ -541,14 +544,14 @@ CLASSIFICAZIONE (tipo_documento):
    b) nome E cognome dell'ASSISTITO leggibili,
    c) nome E cognome del MEDICO prescrittore leggibili (firma, timbro o intestazione),
    d) la parola "prescrizione" o "prescrizione medica" o "promemoria di prescrizione" deve comparire nel testo,
-   e) codice NRE da 15 cifre numeriche (= 5 cifre del codice regionale + 10 cifre numeriche),
-   f) codice regionale (5 cifre numeriche) sopra/accanto al barcode regionale,
+   e) codice NRE di 15 caratteri = codice regionale di 5 caratteri alfanumerici (es. "1900A", 4 cifre + 1 lettera) + 10 cifre numeriche,
+   f) codice regionale di 5 caratteri alfanumerici (es. "1900A") sopra/accanto al barcode regionale,
    g) almeno UN barcode in formato Code39 (linee verticali nere).
    Se MANCA anche uno solo di a–g → NON è una ricetta canonica, classifica come "altro" o "sintesi" secondo i criteri sotto.
 
 2) "sintesi" — foglio di riepilogo con SOLO:
    - un CF assistito,
-   - una o più coppie (codice regionale 5 cifre + NRE 15 cifre).
+   - una o più coppie (codice regionale 5 alfanumerici + NRE 15 caratteri).
    NESSUN dettaglio farmaco e NESSUN nome del medico. Tipicamente è una stampa di promemoria con elenco di ricette.
 
 3) "altro" — qualsiasi altro documento (carte d'identità, tessere sanitarie, scontrini, referti, lettere, brochure, allegati firma, e qualsiasi documento che non rientri nei criteri di 1 o 2).
@@ -567,7 +570,7 @@ Restituisci SOLO JSON puro (no markdown), con questa forma:
   "data_ricetta": string|null,               // ISO YYYY-MM-DD
   "dpc": boolean,                            // true se compare la sigla DPC
   "prescrizioni": [
-    { "numero_ricetta": "<15 cifre>", "codice_regionale": "<5 cifre>" }
+    { "numero_ricetta": "<5 alfanumerici + 10 cifre, totale 15>", "codice_regionale": "<5 alfanumerici>" }
   ]
 }
 
@@ -578,8 +581,8 @@ REGOLE CRITICHE codice_fiscale assistito:
 - Se non riesci a leggere un CF di 16 char valido, metti null. NON inventare.
 
 REGOLE prescrizioni:
-- "numero_ricetta" = NRE = ESATTAMENTE 15 cifre numeriche (sole cifre, niente spazi/trattini). Sono il codice regionale (5) + 10 cifre numeriche.
-- "codice_regionale" = ESATTAMENTE 5 cifre numeriche.
+- "numero_ricetta" = NRE = ESATTAMENTE 15 caratteri = 5 caratteri alfanumerici (codice regionale, es. "1900A") + 10 cifre numeriche. Niente spazi/trattini. Esempio: "1900A4963790679".
+- "codice_regionale" = ESATTAMENTE 5 caratteri alfanumerici. Es. "1900A" per la Sicilia.
 - Se il documento contiene più NRE distinti ("sintesi"), restituiscili TUTTI come elementi separati.
 - Se non è "ricetta" né "sintesi", restituisci [] e tipo_documento "altro".
 
@@ -811,7 +814,7 @@ export const reprocessExistingRicette = createServerFn({ method: "POST" })
 
         const cfValid = normalizeCF(ext.codice_fiscale ?? null);
         const pres = ext.prescrizioni ?? [];
-        if (!cfValid || pres.length === 0) { failed++; continue; }
+        if (pres.length === 0) { failed++; continue; }
         if (ext.tipo_documento === "ricetta" && !isValidRicettaCanonica(ext, cfValid)) {
           await supabaseAdmin.from("ricette").delete().eq("id", r.id);
           removedAltro++;
