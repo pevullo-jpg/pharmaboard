@@ -448,9 +448,15 @@ type GmailMessage = {
 function collectAttachmentParts(parts: GmailPart[] | undefined, acc: GmailPart[] = []): GmailPart[] {
   if (!parts) return acc;
   for (const p of parts) {
-    if (p.body?.attachmentId && (p.mimeType === "application/pdf" || p.mimeType?.startsWith("image/"))) {
+    const mt = p.mimeType ?? "";
+    const fn = (p.filename ?? "").toLowerCase();
+    const isPdf = mt === "application/pdf" || (fn.endsWith(".pdf") && mt !== "application/pkcs7-signature");
+    const isImg = mt.startsWith("image/");
+    if (p.body?.attachmentId && (isPdf || isImg)) {
       acc.push(p);
     }
+    // Scendi anche dentro multipart/related, multipart/alternative,
+    // multipart/mixed e dentro le mail inoltrate (message/rfc822).
     if (p.parts) collectAttachmentParts(p.parts, acc);
   }
   return acc;
@@ -458,14 +464,6 @@ function collectAttachmentParts(parts: GmailPart[] | undefined, acc: GmailPart[]
 
 function base64UrlToBase64(b64url: string): string {
   return b64url.replace(/-/g, "+").replace(/_/g, "/");
-}
-
-// Pre-filtro gratuito: subject/snippet/filename devono contenere almeno una keyword
-// SSN. Evita di scaricare allegati e chiamare l'AI per email irrilevanti.
-const RICETTA_KEYWORDS = /(prescriz|ricett|\bnre\b|promemoria|\bdem\b|\bssn\b|dpc)/i;
-function isEmailRelevantForRicetta(subject: string, snippet: string, filenames: string[]): boolean {
-  const haystack = [subject, snippet, ...filenames].join(" ");
-  return RICETTA_KEYWORDS.test(haystack);
 }
 
 /**
