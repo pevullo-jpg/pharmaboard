@@ -20,10 +20,7 @@ function ImpostazioniPage() {
         <h1 className="text-3xl font-semibold tracking-tight">Gestione anticipi</h1>
       </div>
 
-      <Link
-        to="/_authenticated/impostazioni_/inoltro-email"
-        className="block"
-      >
+      <Link to="/impostazioni/inoltro-email" className="block">
         <Card className="glass-card p-5 hover:bg-sidebar-accent/30 transition-colors">
           <div className="flex items-center gap-4">
             <div className="size-12 rounded-xl bg-gradient-to-br from-primary to-accent grid place-items-center shrink-0 accent-glow">
