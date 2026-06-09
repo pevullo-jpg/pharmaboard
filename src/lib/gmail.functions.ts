@@ -715,6 +715,154 @@ export const syncGmailRicette = createServerFn({ method: "POST" })
   });
 
 /**
+ * Rielabora con il classificatore aggiornato tutte le ricette già importate
+ * dalla farmacia corrente (o tutte se super admin).
+ * - Riscarica l'allegato originale via Gmail.
+ * - Riclassifica come ricetta / sintesi / altro.
+ * - "altro" → ricetta eliminata.
+ * - "ricetta" / "sintesi" → aggiorna campi (NRE, regionale, CF, ...).
+ * - Dedup per NRE per farmacia: tiene la più recente, elimina i duplicati.
+ */
+export const reprocessExistingRicette = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const userId = context.userId;
+    const { data: isSuper } = await context.supabase.rpc("is_super_admin", { _uid: userId });
+    const { data: myFarm } = await context.supabase.rpc("current_farmacia_id", { _uid: userId });
+
+    let q = supabaseAdmin
+      .from("ricette")
+      .select("id, farmacia_id, source_email_id, numero_ricetta, created_at")
+      .not("source_email_id", "is", null)
+      .order("created_at", { ascending: true });
+    if (!isSuper) {
+      if (!myFarm) throw new Error("Farmacia non trovata");
+      q = q.eq("farmacia_id", myFarm as string);
+    }
+    const { data: rows, error } = await q;
+    if (error) throw error;
+
+    let processed = 0;
+    let updated = 0;
+    let removedAltro = 0;
+    let removedDup = 0;
+    let failed = 0;
+
+    // Cache per evitare di riscaricare lo stesso allegato più volte.
+    const seenNre = new Map<string, string>(); // key = `${farmacia_id}|${nre}` → ricetta id
+
+    for (const r of rows ?? []) {
+      processed++;
+      try {
+        const att = await fetchFirstAttachmentBytes(r.source_email_id!);
+        if (!att) { failed++; continue; }
+        const base64 = uint8ToBase64(att.bytes);
+        const ext = await extractDocumentWithAI(base64, att.mimeType);
+        if (!ext) { failed++; continue; }
+
+        if (ext.tipo_documento === "altro") {
+          await supabaseAdmin.from("ricette").delete().eq("id", r.id);
+          removedAltro++;
+          continue;
+        }
+
+        const cfValid = normalizeCF(ext.codice_fiscale ?? null);
+        const pres = ext.prescrizioni ?? [];
+        if (!cfValid || pres.length === 0) { failed++; continue; }
+        if (ext.tipo_documento === "ricetta" && !ext.has_barcode_code39) {
+          await supabaseAdmin.from("ricette").delete().eq("id", r.id);
+          removedAltro++;
+          continue;
+        }
+
+        // La prima prescrizione resta sulla riga esistente; eventuali NRE extra
+        // (caso "sintesi" con più ricette) vengono inseriti come nuove righe,
+        // saltando quelli già presenti per la stessa farmacia.
+        const [first, ...rest] = pres;
+        const firstKey = `${r.farmacia_id}|${first.numero_ricetta}`;
+        const dupOwner = seenNre.get(firstKey);
+        if (dupOwner && dupOwner !== r.id) {
+          await supabaseAdmin.from("ricette").delete().eq("id", r.id);
+          removedDup++;
+          continue;
+        }
+
+        const assistitoId = await resolveOrCreateAssistito({
+          farmaciaId: r.farmacia_id,
+          cf: cfValid,
+          nome: (ext.nome ?? "").trim(),
+          cognome: (ext.cognome ?? "").trim(),
+          medico: ext.medico ?? null,
+          esenzione: ext.esenzione ?? null,
+        });
+
+        const isDpc = !!ext.dpc;
+        const { error: uErr } = await supabaseAdmin
+          .from("ricette")
+          .update({
+            assistito_id: assistitoId,
+            nome: ext.nome ?? null,
+            cognome: ext.cognome ?? null,
+            codice_fiscale: cfValid,
+            medico: ext.medico ?? null,
+            esenzione: ext.esenzione ?? null,
+            data_ricetta: ext.data_ricetta ?? null,
+            numero_ricetta: first.numero_ricetta,
+            codice_regionale: first.codice_regionale ?? null,
+            tipo_documento: ext.tipo_documento,
+            dpc: isDpc,
+          })
+          .eq("id", r.id);
+        if (uErr) { failed++; continue; }
+        seenNre.set(firstKey, r.id);
+        updated++;
+
+        for (const p of rest) {
+          if (!p.numero_ricetta) continue;
+          const key = `${r.farmacia_id}|${p.numero_ricetta}`;
+          if (seenNre.has(key)) continue;
+          const { data: existsNre } = await supabaseAdmin
+            .from("ricette")
+            .select("id")
+            .eq("farmacia_id", r.farmacia_id)
+            .eq("numero_ricetta", p.numero_ricetta)
+            .limit(1);
+          if (existsNre && existsNre.length > 0) {
+            seenNre.set(key, existsNre[0].id);
+            continue;
+          }
+          const { data: ins, error: iErr } = await supabaseAdmin.from("ricette").insert({
+            farmacia_id: r.farmacia_id,
+            assistito_id: assistitoId,
+            nome: ext.nome ?? null,
+            cognome: ext.cognome ?? null,
+            codice_fiscale: cfValid,
+            medico: ext.medico ?? null,
+            esenzione: ext.esenzione ?? null,
+            data_ricetta: ext.data_ricetta ?? null,
+            numero_ricetta: p.numero_ricetta,
+            codice_regionale: p.codice_regionale ?? null,
+            tipo_documento: ext.tipo_documento,
+            dpc: isDpc,
+            is_dpc_alert: isDpc,
+            source: "gmail",
+            source_email_id: r.source_email_id,
+            stato: "nuova",
+          }).select("id").single();
+          if (iErr || !ins) { failed++; continue; }
+          seenNre.set(key, ins.id);
+        }
+      } catch (e) {
+        console.error("Reprocess failed for ricetta", r.id, e);
+        failed++;
+      }
+    }
+
+    return { processed, updated, removedAltro, removedDup, failed };
+  });
+
+/**
  * Sync the central hub Gmail inbox (es. ilfarmacista.info@gmail.com).
  * Per ogni email letta, estrae l'alias dal `To:` ("+farmaciaXXXX") e
  * indirizza la ricetta alla farmacia corrispondente.

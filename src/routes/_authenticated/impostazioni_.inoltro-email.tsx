@@ -1,12 +1,13 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowLeft, Copy, Check, Mail, Info, AlertCircle, Loader2, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Copy, Check, Mail, Info, AlertCircle, Loader2, CheckCircle2, RefreshCcw } from "lucide-react";
 import { getInboundHubInfo } from "@/lib/inboundHub.functions";
+import { reprocessExistingRicette } from "@/lib/gmail.functions";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/impostazioni_/inoltro-email")({
@@ -16,9 +17,22 @@ export const Route = createFileRoute("/_authenticated/impostazioni_/inoltro-emai
 
 function InoltroEmailPage() {
   const info = useServerFn(getInboundHubInfo);
+  const reprocess = useServerFn(reprocessExistingRicette);
+  const qc = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ["inbound-hub-info"],
     queryFn: () => info(),
+  });
+
+  const reprocessMut = useMutation({
+    mutationFn: () => reprocess(),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      toast.success(
+        `Rielaborate ${r.processed} ricette · aggiornate ${r.updated} · rimosse ${r.removedAltro} (non ricette) · duplicate ${r.removedDup}${r.failed ? ` · errori ${r.failed}` : ""}`,
+      );
+    },
+    onError: (e: Error) => toast.error(e.message),
   });
 
   const [copied, setCopied] = useState(false);
@@ -99,6 +113,30 @@ function InoltroEmailPage() {
                 Farmacia {data.farmacia.stato}: la ricezione non è attiva
               </Badge>
             )}
+          </div>
+        </div>
+      </Card>
+
+      <Card className="glass-card p-6">
+        <div className="flex gap-4">
+          <div className="size-12 rounded-xl bg-accent/15 text-accent grid place-items-center shrink-0">
+            <RefreshCcw className="size-6" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="font-semibold">Rielabora ricette esistenti</h2>
+            <p className="text-sm text-muted-foreground mt-1 mb-4">
+              Riapplica il riconoscimento aggiornato (CF + codice regionale + NRE + barcode Code39) a tutte le ricette già importate. I documenti non riconosciuti come ricetta/sintesi vengono eliminati e i duplicati per NRE vengono ripuliti.
+            </p>
+            <Button
+              onClick={() => {
+                if (window.confirm("Procedere con la rielaborazione? Può richiedere alcuni minuti.")) reprocessMut.mutate();
+              }}
+              disabled={reprocessMut.isPending}
+              className="gap-2"
+            >
+              {reprocessMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <RefreshCcw className="size-4" />}
+              {reprocessMut.isPending ? "Rielaborazione in corso…" : "Avvia rielaborazione"}
+            </Button>
           </div>
         </div>
       </Card>
