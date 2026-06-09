@@ -497,8 +497,9 @@ function normalizeNRE(raw: string | null | undefined): string | null {
 }
 function normalizeRegionale(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  const s = String(raw).replace(/[^A-Z0-9]/gi, "").toUpperCase();
-  return s.length >= 6 ? s : null;
+  // Il codice regionale è composto da 5 cifre numeriche esatte.
+  const s = String(raw).replace(/\D/g, "");
+  return s.length === 5 ? s : null;
 }
 
 async function extractDocumentWithAI(base64: string, mimeType: string): Promise<ExtractedDoc | null> {
