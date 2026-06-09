@@ -880,8 +880,10 @@ export const reprocessExistingRicette = createServerFn({ method: "POST" })
         // La prima prescrizione resta sulla riga esistente; eventuali NRE extra
         // (caso "sintesi" con più ricette) vengono inseriti come nuove righe,
         // saltando quelli già presenti per la stessa farmacia.
+        const firstNre = canonicalNre(pres[0].numero_ricetta, pres[0].codice_regionale);
+        if (!firstNre) { failed++; continue; }
         const [first, ...rest] = pres;
-        const firstKey = `${r.farmacia_id}|${first.numero_ricetta}`;
+        const firstKey = `${r.farmacia_id}|${firstNre}`;
         const dupOwner = seenNre.get(firstKey);
         if (dupOwner && dupOwner !== r.id) {
           await supabaseAdmin.from("ricette").delete().eq("id", r.id);
@@ -909,7 +911,7 @@ export const reprocessExistingRicette = createServerFn({ method: "POST" })
             medico: ext.medico ?? null,
             esenzione: ext.esenzione ?? null,
             data_ricetta: ext.data_ricetta ?? null,
-            numero_ricetta: first.numero_ricetta,
+            numero_ricetta: firstNre,
             codice_regionale: first.codice_regionale ?? null,
             tipo_documento: ext.tipo_documento,
             dpc: isDpc,
@@ -920,14 +922,15 @@ export const reprocessExistingRicette = createServerFn({ method: "POST" })
         updated++;
 
         for (const p of rest) {
-          if (!p.numero_ricetta) continue;
-          const key = `${r.farmacia_id}|${p.numero_ricetta}`;
+          const nreCanon = canonicalNre(p.numero_ricetta, p.codice_regionale);
+          if (!nreCanon) continue;
+          const key = `${r.farmacia_id}|${nreCanon}`;
           if (seenNre.has(key)) continue;
           const { data: existsNre } = await supabaseAdmin
             .from("ricette")
             .select("id")
             .eq("farmacia_id", r.farmacia_id)
-            .eq("numero_ricetta", p.numero_ricetta)
+            .eq("numero_ricetta", nreCanon)
             .limit(1);
           if (existsNre && existsNre.length > 0) {
             seenNre.set(key, existsNre[0].id);
@@ -942,7 +945,7 @@ export const reprocessExistingRicette = createServerFn({ method: "POST" })
             medico: ext.medico ?? null,
             esenzione: ext.esenzione ?? null,
             data_ricetta: ext.data_ricetta ?? null,
-            numero_ricetta: p.numero_ricetta,
+            numero_ricetta: nreCanon,
             codice_regionale: p.codice_regionale ?? null,
             tipo_documento: ext.tipo_documento,
             dpc: isDpc,
