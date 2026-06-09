@@ -460,6 +460,30 @@ function base64UrlToBase64(b64url: string): string {
   return b64url.replace(/-/g, "+").replace(/_/g, "/");
 }
 
+// Pre-filtro gratuito: subject/snippet/filename devono contenere almeno una keyword
+// SSN. Evita di scaricare allegati e chiamare l'AI per email irrilevanti.
+const RICETTA_KEYWORDS = /(prescriz|ricett|\bnre\b|promemoria|\bdem\b|\bssn\b|dpc)/i;
+function isEmailRelevantForRicetta(subject: string, snippet: string, filenames: string[]): boolean {
+  const haystack = [subject, snippet, ...filenames].join(" ");
+  return RICETTA_KEYWORDS.test(haystack);
+}
+
+/**
+ * Una ricetta canonica salvabile DEVE avere CF assistito + nome+cognome assistito
+ * + medico + parola "prescrizione" trovata + almeno un NRE + barcode Code39.
+ * Se manca anche uno solo → declassa a "altro".
+ */
+function isValidRicettaCanonica(ext: ExtractedDoc, cfValid: string | null): boolean {
+  if (!cfValid) return false;
+  if (!(ext.nome ?? "").trim() || !(ext.cognome ?? "").trim()) return false;
+  if (!(ext.medico ?? "").trim()) return false;
+  if (!ext.keyword_prescrizione_trovata) return false;
+  if (!ext.has_barcode_code39) return false;
+  const pres = ext.prescrizioni ?? [];
+  if (pres.length === 0 || !pres.some((p) => p.numero_ricetta)) return false;
+  return true;
+}
+
 const ExtractedSchema = z.object({
   nome: z.string().nullable().optional(),
   cognome: z.string().nullable().optional(),
