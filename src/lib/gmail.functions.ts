@@ -1144,13 +1144,17 @@ export async function runHubSync(): Promise<{
       const tipo = extracted.tipo_documento;
 
       for (const p of extracted.prescrizioni ?? []) {
-        if (!p.numero_ricetta) continue;
+        const nreCanon = canonicalNre(p.numero_ricetta, p.codice_regionale);
+        if (!nreCanon) {
+          console.warn("Skip prescrizione: NRE non canonico", p);
+          continue;
+        }
         // Dedup per NRE: una ricetta con stesso NRE non va reimportata.
         const { data: existsNre } = await supabaseAdmin
           .from("ricette")
           .select("id")
           .eq("farmacia_id", farmaciaId)
-          .eq("numero_ricetta", p.numero_ricetta)
+          .eq("numero_ricetta", nreCanon)
           .limit(1);
         if (existsNre && existsNre.length > 0) {
           // Sintesi: salta sempre. Ricetta full: salta comunque (è la stessa ricetta).
@@ -1167,7 +1171,7 @@ export async function runHubSync(): Promise<{
           medico: extracted.medico ?? null,
           esenzione: extracted.esenzione ?? null,
           data_ricetta: extracted.data_ricetta ?? null,
-          numero_ricetta: p.numero_ricetta,
+          numero_ricetta: nreCanon,
           codice_regionale: p.codice_regionale ?? null,
           tipo_documento: tipo,
           dpc: isDpc,
@@ -1182,6 +1186,29 @@ export async function runHubSync(): Promise<{
         }
         importedRicette++;
       }
+    }
+
+    // Riallineo: ricette appena inserite con assistito_id null ma CF valido →
+    // riaggancia all'assistito ora che esiste (caso sintesi processata prima
+    // della ricetta, o lookup byCf andato in race nello stesso loop).
+    if (cfValidByMessage.size > 0) {
+      for (const [emailCf, fId] of cfValidByMessage) {
+        const { data: aRow } = await supabaseAdmin
+          .from("assistiti")
+          .select("id")
+          .eq("farmacia_id", fId)
+          .eq("codice_fiscale", emailCf)
+          .maybeSingle();
+        if (aRow) {
+          await supabaseAdmin
+            .from("ricette")
+            .update({ assistito_id: aRow.id })
+            .eq("farmacia_id", fId)
+            .eq("codice_fiscale", emailCf)
+            .is("assistito_id", null);
+        }
+      }
+      cfValidByMessage.clear();
     }
   }
 
