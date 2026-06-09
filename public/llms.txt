@@ -1,0 +1,10 @@
+# Farmacia Dashboard
+
+> Gestionale web per farmacie italiane: importa ricette da Gmail, organizza assistiti, prenotazioni, anticipi e debiti.
+
+Farmacia Dashboard è uno strumento riservato al personale di farmacia. L'accesso operativo è protetto da autenticazione; le uniche pagine pubbliche sono il login e la registrazione di una nuova farmacia.
+
+## Pages
+
+- [Accedi](/auth): Login degli operatori di farmacia.
+- [Registra la tua farmacia](/registra-farmacia): Modulo di iscrizione per nuove farmacie, in attesa di approvazione.
