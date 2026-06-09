@@ -129,10 +129,16 @@ async function resolveOrCreateAssistito(args: {
     .eq("farmacia_id", farmaciaId)
     .eq("codice_fiscale", cf)
     .maybeSingle();
-  if (byCf) return byCf.id;
+  if (byCf) {
+    console.log("resolveAssistito: hit by CF", cf, "→", byCf.id);
+    return byCf.id;
+  }
 
   // 2) Crea nuovo: serve almeno cognome o nome per intestare il record
-  if (!cognome && !nome) return null;
+  if (!cognome && !nome) {
+    console.warn("resolveAssistito: skip create — CF presente ma nome/cognome assenti", cf);
+    return null;
+  }
   const { data: created, error: cErr } = await supabaseAdmin
     .from("assistiti")
     .insert({
@@ -157,6 +163,7 @@ async function resolveOrCreateAssistito(args: {
     if (again) return again.id;
     return null;
   }
+  console.log("resolveAssistito: created", cf, cognome, nome, "→", created?.id);
   return created?.id ?? null;
 }
 
@@ -531,6 +538,24 @@ function normalizeRegionale(raw: string | null | undefined): string | null {
   return /^[A-Z0-9]{5}$/.test(s) ? s : null;
 }
 
+/**
+ * NRE canonico = 15 caratteri = codice regionale (5 alfanumerici) + 10 cifre.
+ * Se l'AI restituisce solo le 10 cifre della parte numerica e abbiamo il
+ * codice regionale separato, li concateniamo. Se il NRE è già nel formato
+ * canonico (15 char alfanumerici) lo restituiamo invariato.
+ * Tutta la pipeline di insert/update/dedup deve passare attraverso questo
+ * helper per evitare di salvare lo stesso NRE in due formati diversi
+ * (es. "4963790679" vs "1900A4963790679") che farebbe sembrare la stessa
+ * ricetta come due righe distinte in dashboard.
+ */
+function canonicalNre(numero: string | null | undefined, regionale: string | null | undefined): string | null {
+  const num = (numero ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const reg = (regionale ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (/^[A-Z0-9]{5}\d{10}$/.test(num)) return num;
+  if (/^\d{10}$/.test(num) && /^\d{4}[A-Z0-9]$/.test(reg)) return reg + num;
+  return null;
+}
+
 async function extractDocumentWithAI(base64: string, mimeType: string): Promise<ExtractedDoc | null> {
   const apiKey = process.env.LOVABLE_API_KEY;
   if (!apiKey) throw new Error("LOVABLE_API_KEY missing");
@@ -855,8 +880,10 @@ export const reprocessExistingRicette = createServerFn({ method: "POST" })
         // La prima prescrizione resta sulla riga esistente; eventuali NRE extra
         // (caso "sintesi" con più ricette) vengono inseriti come nuove righe,
         // saltando quelli già presenti per la stessa farmacia.
+        const firstNre = canonicalNre(pres[0].numero_ricetta, pres[0].codice_regionale);
+        if (!firstNre) { failed++; continue; }
         const [first, ...rest] = pres;
-        const firstKey = `${r.farmacia_id}|${first.numero_ricetta}`;
+        const firstKey = `${r.farmacia_id}|${firstNre}`;
         const dupOwner = seenNre.get(firstKey);
         if (dupOwner && dupOwner !== r.id) {
           await supabaseAdmin.from("ricette").delete().eq("id", r.id);
@@ -884,7 +911,7 @@ export const reprocessExistingRicette = createServerFn({ method: "POST" })
             medico: ext.medico ?? null,
             esenzione: ext.esenzione ?? null,
             data_ricetta: ext.data_ricetta ?? null,
-            numero_ricetta: first.numero_ricetta,
+            numero_ricetta: firstNre,
             codice_regionale: first.codice_regionale ?? null,
             tipo_documento: ext.tipo_documento,
             dpc: isDpc,
@@ -895,14 +922,15 @@ export const reprocessExistingRicette = createServerFn({ method: "POST" })
         updated++;
 
         for (const p of rest) {
-          if (!p.numero_ricetta) continue;
-          const key = `${r.farmacia_id}|${p.numero_ricetta}`;
+          const nreCanon = canonicalNre(p.numero_ricetta, p.codice_regionale);
+          if (!nreCanon) continue;
+          const key = `${r.farmacia_id}|${nreCanon}`;
           if (seenNre.has(key)) continue;
           const { data: existsNre } = await supabaseAdmin
             .from("ricette")
             .select("id")
             .eq("farmacia_id", r.farmacia_id)
-            .eq("numero_ricetta", p.numero_ricetta)
+            .eq("numero_ricetta", nreCanon)
             .limit(1);
           if (existsNre && existsNre.length > 0) {
             seenNre.set(key, existsNre[0].id);
@@ -917,7 +945,7 @@ export const reprocessExistingRicette = createServerFn({ method: "POST" })
             medico: ext.medico ?? null,
             esenzione: ext.esenzione ?? null,
             data_ricetta: ext.data_ricetta ?? null,
-            numero_ricetta: p.numero_ricetta,
+            numero_ricetta: nreCanon,
             codice_regionale: p.codice_regionale ?? null,
             tipo_documento: ext.tipo_documento,
             dpc: isDpc,
@@ -1119,13 +1147,17 @@ export async function runHubSync(): Promise<{
       const tipo = extracted.tipo_documento;
 
       for (const p of extracted.prescrizioni ?? []) {
-        if (!p.numero_ricetta) continue;
+        const nreCanon = canonicalNre(p.numero_ricetta, p.codice_regionale);
+        if (!nreCanon) {
+          console.warn("Skip prescrizione: NRE non canonico", p);
+          continue;
+        }
         // Dedup per NRE: una ricetta con stesso NRE non va reimportata.
         const { data: existsNre } = await supabaseAdmin
           .from("ricette")
           .select("id")
           .eq("farmacia_id", farmaciaId)
-          .eq("numero_ricetta", p.numero_ricetta)
+          .eq("numero_ricetta", nreCanon)
           .limit(1);
         if (existsNre && existsNre.length > 0) {
           // Sintesi: salta sempre. Ricetta full: salta comunque (è la stessa ricetta).
@@ -1142,7 +1174,7 @@ export async function runHubSync(): Promise<{
           medico: extracted.medico ?? null,
           esenzione: extracted.esenzione ?? null,
           data_ricetta: extracted.data_ricetta ?? null,
-          numero_ricetta: p.numero_ricetta,
+          numero_ricetta: nreCanon,
           codice_regionale: p.codice_regionale ?? null,
           tipo_documento: tipo,
           dpc: isDpc,
@@ -1156,6 +1188,26 @@ export async function runHubSync(): Promise<{
           continue;
         }
         importedRicette++;
+      }
+
+      // Riallineo: se l'assistito è stato creato DOPO l'insert di una
+      // sintesi orfana (o se è andato in race) ricolleghiamo tutte le
+      // ricette di questo CF nella farmacia.
+      if (cfValid && !assistitoId) {
+        const { data: aRow } = await supabaseAdmin
+          .from("assistiti")
+          .select("id")
+          .eq("farmacia_id", farmaciaId)
+          .eq("codice_fiscale", cfValid)
+          .maybeSingle();
+        if (aRow) {
+          await supabaseAdmin
+            .from("ricette")
+            .update({ assistito_id: aRow.id })
+            .eq("farmacia_id", farmaciaId)
+            .eq("codice_fiscale", cfValid)
+            .is("assistito_id", null);
+        }
       }
     }
   }

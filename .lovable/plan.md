@@ -1,108 +1,42 @@
-# Piano: miglioramento riconoscimento ricette
+## Diagnosi (da DB reale)
 
-## Diagnosi (dai sample allegati)
+**Lombardo Eliana — "due copie della stessa ricetta"**
+Dalla query DB risulta che la stessa email (`19ea6c6f6e0089f7`) ha generato 3 righe:
+- `4963790679` (10 cifre, parser AI vecchio)
+- `4963790706` (10 cifre, parser AI vecchio)
+- `1900A4963790679` (15 char, parser deterministico nuovo — è la sintesi)
 
-Ho testato il parser attuale sui PDF forniti. Cosa emerge:
+Lo stesso NRE viene memorizzato in due formati diversi (10 cifre vs `codice_regionale + 10 cifre`), quindi il dedup `eq("numero_ricetta", ...)` non li riconosce come duplicati. La sintesi inserisce `1900A4963790679` mentre la ricetta full aveva `4963790679`: sembrano "due copie" perché stessa persona, stessa data, stesso farmaco visivo, ma chiave diversa.
 
-1. **`unpdf` restituisce TUTTO il testo su una singola riga** (nessun `\n`, gli spazi fra colonne diventano singolo spazio). Il parser oggi si basa su `takeLineAfter` con stop su `\n` o su `\s{2,}LABEL:` → quindi cattura testo "a valanga".
-   - Esempio reale (`1900A4964766295.pdf`):
-     - cognome estratto: `SPITALI` ✓
-     - nome estratto: `CALOGERA INDIRIZZO VIA ROMITA CAP CITTA' GROTTE ... ESCITALOPRAM OSSALATO ---` ✗
-     - medico estratto: `BUSCARINO LUIGICODICE AUTENTICAZIONE ... METOTREXATO SODICO ---` ✗
-2. Per i Promemoria (`Ì1900ADÎ1900A`, `ÌLMBLNE…ÎLMBLNE…`) il testo "barcode + pulito" è incollato. Le ancore funzionano ma il name resolver fallisce perché `resolveAssistitoByCF` testa tutti i token raccolti dal blocco contaminato e non trova match → ritorna `null` → la ricetta viene scartata.
-3. Risultato sui 11 PDF di prova:
-   - 2 estratti come ricetta con `cognome` corretto ma `nome`/`medico` sbagliati → comunque salvabili solo perché `cfMatchesName` controlla solo i primi 6 caratteri del CF → matcha sul cognome+primo nome.
-   - 7 ricette `null` → scartate del tutto.
-   - 1 sintesi (`Elenco_NRE`) estratta con solo 1 NRE su 2.
-4. Pre-filtro keyword in `runHubSync` (`isEmailRelevantForRicetta`) salta intere mail se subject/snippet/filename non contengono "prescriz|ricett|nre|promemoria|dem|ssn|dpc". Da rimuovere.
-5. Il loop attuale itera già su tutti gli allegati PDF/immagine (`collectAttachmentParts` ricorsivo) — OK. Da rinforzare: processare ogni PDF anche se uno fallisce, e includere i PDF *nested* dentro `multipart/related` o `message/rfc822` (forwarded).
+Stesso pattern su TODARO (`4964740622` vs `1900A4964740622`).
 
-## Cambi proposti
+**Assistito non collegato sulla riga "sintesi"**
+La riga sintesi di TODARO (`b08d2363`) ha `assistito_id = NULL` anche se l'assistito esiste già (creato 15s prima dalla ricetta full). Il bug è nel parser sintesi: ritorna `nome: null, cognome: null`, quindi `resolveOrCreateAssistito` con cf valido dovrebbe trovare la riga via `byCf`. Va indagato perché non aggancia (probabile race / log da aggiungere).
 
-### 1. `src/lib/gmail.functions.ts`
+**Assistiti "non creati"**
+In realtà gli assistiti vengono creati (33 in DB, l'ultimo oggi alle 07:33). Sospetto che il problema sia che per le ricette nuove di oggi gli assistiti non vengono aggiunti, oppure è un fraintendimento con il punto sopra (sintesi orfana fa sembrare la ricetta "non associata"). → vedi domanda 1.
 
-- **Rimuovere** `RICETTA_KEYWORDS` e la chiamata `isEmailRelevantForRicetta` in `runHubSync`. Tutti gli allegati PDF/immagine vengono scaricati e dati al parser.
-- **Estendere `collectAttachmentParts`** per scendere anche in `message/rfc822` e ignorare gli allegati con mime non PDF/immagine (firma S/MIME `application/pkcs7-signature`, `application/octet-stream` solo se filename `.pdf`).
-- **Continuare il loop** sugli allegati anche dopo una `extractDocumentFromAttachment` che fallisce: oggi un `skipped++; continue;` va bene, ma loggiamo il motivo (parser/AI fallback / scartato per validazione).
-- **`runHubSync` log finali**: aggiungere counters `extractedDeterministic / extractedAi / rejectedNoCf / rejectedNameMismatch` per diagnosticare.
+**Flag non mostrati**
+I badge `DebitiBadge / AnticipiBadge / PrenotazioniBadge` fanno una `useQuery` per ogni riga assistito, non leggono dai dati embedded della query `assistiti`. Possibile causa: 1) RLS che blocca la SELECT su anticipi/prenotazioni/debiti per la sessione, 2) il `farmacia_id` non è popolato sulle righe figlie, 3) il dato embedded `anticipi/debiti/prenotazioni` non viene mai usato. → vedi domanda 2.
 
-### 2. `src/lib/ricette-parser.server.ts` — riscrittura ancorata a label
+## Modifiche
 
-Approccio: invece di "prendi la riga dopo la label", usiamo **estrazione fra label note** (label-to-label window) con elenco esaustivo delle etichette SSN che troviamo nei sample. Tutte le label sono delimitatori globali; il valore di `LABEL_X` è il testo fra `LABEL_X:` e la prossima label che compare nel testo.
+### 1) Canonicalizzazione NRE (fix duplicato Lombardo)
+In `src/lib/gmail.functions.ts`:
+- Helper `canonicalNre(numero, regionale)`: se `numero` è 10 cifre e `regionale` è 5 char alfanumerici, ritorna `regionale + numero`. Se `numero` è già 15 char, ritorna così.
+- Applicato in `runHubSync` e `reprocessExistingRicette` prima dell'insert/update e prima della dedup.
+- Backfill via SQL: per le ricette con `numero_ricetta` di 10 cifre e `codice_regionale` di 5 char, aggiornare a `regionale || numero`. Poi rimuovere duplicati esatti su `(farmacia_id, numero_ricetta)` tenendo la più vecchia (con assistito_id valido).
 
-Label set (ordine non rilevante):
-```
-COGNOME E NOME ASSISTITO        (varianti: /COGNOME E NOME(?:\/INIZIALI)?(?:\s+DELL['']?)?\s*ASSISTITO\s*:/i)
-INDIRIZZO:
-CAP:
-CITTA':
-PROV:
-ESENZIONE:
-SIGLA PROVINCIA:
-CODICE ASL:
-DISPOSIZIONI REGIONALI:
-TIPOLOGIA PRESCRIZIONE
-ALTRO:
-PRIORITA' PRESCRIZIONE
-PRESCRIZIONE
-QTA
-NOTA
-QUESITO DIAGNOSTICO:
-N.CONFEZIONI / PRESTAZIONI
-TIPO RICETTA:
-DATA:
-CODICE FISCALE DEL MEDICO:
-CODICE AUTENTICAZIONE:
-COGNOME E NOME DEL MEDICO:
-Rilasciato ai sensi
-```
+### 2) Riallineo sintesi orfane (TODARO case)
+In `runHubSync`, dopo l'insert della prescrizione, se `assistitoId` è null e `cfValid` esiste, ritenta un lookup pulito (in caso di race) prima di salvare. Inoltre, dopo aver processato tutte le prescrizioni di un'email, fare un UPDATE finale: `ricette set assistito_id = (select id from assistiti where cf = ... and farmacia_id = ...) where assistito_id is null`.
 
-Algoritmo `parseField(text, label, allLabels)`:
-1. Trova `match = labelRegex.exec(text)`.
-2. Da `match.index + match[0].length`, scansiona in avanti finché non trova l'inizio della prossima label (qualunque label del set, non solo successiva in ordine documento).
-3. Ritorna il segmento ripulito (`.replace(/\s+/g," ").trim()`).
+### 3) Logging diagnostico assistiti
+Aggiungere `console.log` in `resolveOrCreateAssistito` per ogni path (`byCf hit`, `created`, `skipped no-name`) così possiamo capire la prossima regressione dai logs server.
 
-Vantaggi: funziona sia su testo monoriga (unpdf) sia su layout pdftotext, sia su Promemoria che su SSN cartacea.
+### 4) Flag badges
+Da chiarire (vedi domande).
 
-Estrazioni specifiche:
-- **Cognome+Nome assistito**: parsa il valore di `COGNOME E NOME ASSISTITO`, normalizza spazi, tokenizza A-Z. Combina con il CF assistito (`resolveAssistitoByCF`) per scegliere la partizione corretta. Il CF è la fonte di verità.
-- **CF assistito**:
-  - Cerca tutti i pattern `[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]` in `text.replace(/[^A-Z0-9]/g,'')` (così include i CF circondati da `Ì…Î`).
-  - Esclude il CF medico (estratto dalla label `CODICE FISCALE DEL MEDICO:`).
-  - Sceglie il CF coerente con cognome+nome dell'header label. Se label assente o non match, **lascia fallback AI** (no salvataggio silenzioso con dati sbagliati).
-- **Medico**: parsa `COGNOME E NOME DEL MEDICO`. Stop hard sulla parola `CODICE AUTENTICAZIONE` o sulla parola `Rilasciato`.
-  - Bug attuale: nel sample `BUSCARINO LUIGICODICE AUTENTICAZIONE…` la label medico viene PRIMA di `CODICE AUTENTICAZIONE` quindi va aggiunta `CODICE AUTENTICAZIONE:` come delimitatore.
-- **NRE**:
-  - Pulisci `text` con `replace(/[^A-Z0-9]/g, ' ')` (rimuove `Ì Î Ë * $ y z` ecc.).
-  - Regex `(?<![A-Z0-9])([A-Z0-9]{5})\s+(\d{10})(?![A-Z0-9])` con lookaround invece di `\b` per evitare match sporchi tipo `900AC + 4963790679` quando in input c'è `1900AC`. Codice regionale validato come `\d{4}[A-Z0-9]` (es. `1900A`, `0301G`).
-  - Dedup case-insensitive sul `full = reg+num`.
-  - Pre-filtra: scarta NRE che combaciano col CF assistito o col CF medico (15 cifre interne).
-- **Sintesi** (`Elenco_NRE.pdf`): pattern `PIN-NRBE` o tabella `Data NRE PIN-NRBE`. Tutti gli NRE trovati sono prescrizioni. CF unico nel documento = CF assistito.
-- **Esenzione**: subito dopo `ESENZIONE:` fino allo spazio o alla prossima label.
-- **Data**: regex `DATA[^0-9]*?(\d{2}/\d{2}/\d{4})` → ISO.
-- **DPC**: boolean su parola `DPC`.
+## Domande prima di implementare
 
-### 3. Validazione e fallback
-
-- `parsePdfRicetta` ritorna `null` SOLO quando il PDF non ha testo (scansione pura) o quando il testo non contiene NESSUN marker SSN noto. Altrimenti ritorna l'`ExtractedDoc` con confidence:
-  - `high`: CF + nome coerente + medico + ≥1 NRE → salvato direttamente.
-  - `low`: manca uno dei requisiti → caller decide se fare fallback AI.
-- In `extractDocumentFromAttachment` (gmail.functions.ts): se parser ritorna `null` OR `confidence === "low"` → fallback `extractDocumentWithAI`.
-- Regola "no CF assistito → no ricetta" mantenuta in `isValidRicettaCanonica`.
-
-### 4. Verifica
-
-Aggiungere uno script di test locale `scripts/test-parser.ts` (gitignored o no — TBD) che gira il parser su ogni PDF in `/mnt/user-uploads/` e stampa un report. Pre/post-cambio confronto:
-- Oggi: 2/11 ricette estratte correttamente (cognome OK, nome/medico sporchi), 1/1 sintesi parziale.
-- Atteso: 7/7 ricette + 2/2 promemoria + 1/1 sintesi con tutti i 2 NRE = 10/10 OK; 1 caso (`1900A4964779467` con CF `PRDVCN…`) verificato a parte.
-
-## File toccati
-
-- `src/lib/gmail.functions.ts` — rimuovi pre-filtro, estendi `collectAttachmentParts`, logging.
-- `src/lib/ricette-parser.server.ts` — riscrittura con label-window.
-- (opz.) `scripts/test-parser.ts` — harness di test.
-
-## Domande
-
-1. OK rimuovere completamente il pre-filtro keyword (ogni mail con PDF/immagine verrà analizzata, anche newsletter)? In alternativa lo posso allargare invece di rimuoverlo.
-2. Quando il parser estrae NRE+nome ma il CF non combacia con il nome (ricetta cartacea con CF illeggibile o assente), **rifiuto totale** (regola attuale) oppure **salvo come orfano** in `orphan_ricette` per merge successivo?
+1. **Assistiti "non creati"**: per quale ricetta specifica ti aspettavi un nuovo assistito e non è apparso? Mi dai un nome/CF o lo screenshot della dashboard ricette → la creo nel debug.
+2. **Flag**: quali flag intendi? (a) i badge €/anticipi/prenotazioni colorati sulla riga assistito, (b) un flag DPC sulle ricette, (c) altro? Se è (a), i dati embedded (`debiti/anticipi/prenotazioni`) sono già nella query principale ma i badge fanno il loro fetch separato — vuoi che usi solo i dati embedded (più veloce, meno query) o lasciamo il fetch per riga?
