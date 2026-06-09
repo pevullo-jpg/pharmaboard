@@ -414,8 +414,8 @@ function FarmaciaDashboard() {
                   ? "bg-amber-500/10 hover:bg-amber-500/15"
                   : "hover:bg-sidebar-accent/30";
             return (
-            <div key={r.id} className={`px-5 py-3 flex items-center justify-between gap-4 transition-colors ${rowCls}`}>
-              <div className="min-w-0 flex-1">
+            <div key={r.id} className={`px-5 py-3 flex items-center justify-between gap-4 transition-colors flex-wrap ${rowCls}`}>
+              <div className="min-w-0 flex-1 basis-64">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium truncate">{r.cognome ?? ""} {r.nome ?? ""}</span>
                   {r.codice_fiscale && <span className="text-xs text-muted-foreground font-mono">{r.codice_fiscale}</span>}
@@ -432,12 +432,12 @@ function FarmaciaDashboard() {
                     </Badge>
                   )}
                 </div>
-                <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3">
+                <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3 flex-wrap">
                   {r.medico && <span>Dr. {r.medico}</span>}
                   {r.data_ricetta && <span>{format(new Date(r.data_ricetta), "d MMM yyyy", { locale: it })}</span>}
                 </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
                 {r.assistito_id && (
                   <DebitiBadge assistitoId={r.assistito_id} label={`${r.cognome ?? ""} ${r.nome ?? ""}`.trim()} />
                 )}
