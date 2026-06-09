@@ -828,7 +828,7 @@ export const reprocessExistingRicette = createServerFn({ method: "POST" })
         const att = await fetchFirstAttachmentBytes(r.source_email_id!);
         if (!att) { failed++; continue; }
         const base64 = uint8ToBase64(att.bytes);
-        const ext = await extractDocumentWithAI(base64, att.mimeType);
+        const ext = await extractDocumentFromAttachment(base64, att.mimeType);
         if (!ext) { failed++; continue; }
 
         if (ext.tipo_documento === "altro") {
