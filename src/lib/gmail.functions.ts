@@ -460,6 +460,30 @@ function base64UrlToBase64(b64url: string): string {
   return b64url.replace(/-/g, "+").replace(/_/g, "/");
 }
 
+// Pre-filtro gratuito: subject/snippet/filename devono contenere almeno una keyword
+// SSN. Evita di scaricare allegati e chiamare l'AI per email irrilevanti.
+const RICETTA_KEYWORDS = /(prescriz|ricett|\bnre\b|promemoria|\bdem\b|\bssn\b|dpc)/i;
+function isEmailRelevantForRicetta(subject: string, snippet: string, filenames: string[]): boolean {
+  const haystack = [subject, snippet, ...filenames].join(" ");
+  return RICETTA_KEYWORDS.test(haystack);
+}
+
+/**
+ * Una ricetta canonica salvabile DEVE avere CF assistito + nome+cognome assistito
+ * + medico + parola "prescrizione" trovata + almeno un NRE + barcode Code39.
+ * Se manca anche uno solo → declassa a "altro".
+ */
+function isValidRicettaCanonica(ext: ExtractedDoc, cfValid: string | null): boolean {
+  if (!cfValid) return false;
+  if (!(ext.nome ?? "").trim() || !(ext.cognome ?? "").trim()) return false;
+  if (!(ext.medico ?? "").trim()) return false;
+  if (!ext.keyword_prescrizione_trovata) return false;
+  if (!ext.has_barcode_code39) return false;
+  const pres = ext.prescrizioni ?? [];
+  if (pres.length === 0 || !pres.some((p) => p.numero_ricetta)) return false;
+  return true;
+}
+
 const ExtractedSchema = z.object({
   nome: z.string().nullable().optional(),
   cognome: z.string().nullable().optional(),
@@ -486,6 +510,8 @@ const ExtractedDocSchema = z.object({
   data_ricetta: z.string().nullable().optional(),
   dpc: z.boolean().nullable().optional(),
   prescrizioni: z.array(PrescrizioneSchema).default([]),
+  keyword_prescrizione_trovata: z.boolean().nullable().optional(),
+  confidence: z.enum(["low", "medium", "high"]).nullable().optional(),
 });
 export type ExtractedDoc = z.infer<typeof ExtractedDocSchema>;
 
@@ -497,60 +523,76 @@ function normalizeNRE(raw: string | null | undefined): string | null {
 }
 function normalizeRegionale(raw: string | null | undefined): string | null {
   if (!raw) return null;
-  const s = String(raw).replace(/[^A-Z0-9]/gi, "").toUpperCase();
-  return s.length >= 6 ? s : null;
+  // Il codice regionale è composto da 5 cifre numeriche esatte.
+  const s = String(raw).replace(/\D/g, "");
+  return s.length === 5 ? s : null;
 }
 
 async function extractDocumentWithAI(base64: string, mimeType: string): Promise<ExtractedDoc | null> {
   const apiKey = process.env.LOVABLE_API_KEY;
   if (!apiKey) throw new Error("LOVABLE_API_KEY missing");
 
-  const prompt = `Sei un OCR specializzato nei documenti del SSN italiano. Devi classificare il documento e estrarre i dati.
+  const prompt = `Sei un OCR specializzato nei documenti del SSN italiano. Classifica il documento e estrai i dati con la MASSIMA precisione.
 
-TIPI DI DOCUMENTO:
-- "ricetta": ricetta medica SSN (cartacea o promemoria DEM). Deve contenere TUTTI questi elementi essenziali:
-    a) codice fiscale dell'ASSISTITO (16 caratteri),
-    b) codice regionale (alfanumerico, sopra/accanto al barcode regionale),
-    c) codice NRE (15 cifre, identificativo nazionale univoco della ricetta),
-    d) almeno UN barcode in formato Code39 (linee verticali nere) associato a NRE o codice regionale.
-  Se MANCA anche solo uno tra CF, codice regionale, NRE o barcode Code39 → NON è una ricetta, classifica come "altro".
-- "sintesi": foglio/elenco di riepilogo che riporta SOLO il CF dell'assistito e una o più coppie (codice regionale + NRE), senza i farmaci. Tipicamente prodotto dal medico per liste promemoria.
-- "altro": qualsiasi altro documento (carta d'identità, tessera sanitaria, scontrini, referti, lettere, brochure). Anche un documento con solo il CF ma SENZA codici regionali+NRE deve essere "altro".
+CLASSIFICAZIONE (tipo_documento):
 
-Restituisci SOLO un JSON puro, senza markdown, in questo formato:
+1) "ricetta" — ricetta medica SSN (cartacea o promemoria DEM). Deve avere TUTTI questi elementi:
+   a) codice fiscale ASSISTITO (16 char),
+   b) nome E cognome dell'ASSISTITO leggibili,
+   c) nome E cognome del MEDICO prescrittore leggibili (firma, timbro o intestazione),
+   d) la parola "prescrizione" o "prescrizione medica" o "promemoria di prescrizione" deve comparire nel testo,
+   e) codice NRE da 15 cifre numeriche (= 5 cifre del codice regionale + 10 cifre numeriche),
+   f) codice regionale (5 cifre numeriche) sopra/accanto al barcode regionale,
+   g) almeno UN barcode in formato Code39 (linee verticali nere).
+   Se MANCA anche uno solo di a–g → NON è una ricetta canonica, classifica come "altro" o "sintesi" secondo i criteri sotto.
+
+2) "sintesi" — foglio di riepilogo con SOLO:
+   - un CF assistito,
+   - una o più coppie (codice regionale 5 cifre + NRE 15 cifre).
+   NESSUN dettaglio farmaco e NESSUN nome del medico. Tipicamente è una stampa di promemoria con elenco di ricette.
+
+3) "altro" — qualsiasi altro documento (carte d'identità, tessere sanitarie, scontrini, referti, lettere, brochure, allegati firma, e qualsiasi documento che non rientri nei criteri di 1 o 2).
+
+Restituisci SOLO JSON puro (no markdown), con questa forma:
 {
   "tipo_documento": "ricetta" | "sintesi" | "altro",
-  "has_barcode_code39": boolean,            // true se vedi almeno un barcode Code39
-  "nome": string|null,                      // nome assistito (solo per ricetta/sintesi)
-  "cognome": string|null,                   // cognome assistito
-  "codice_fiscale": string|null,            // CF assistito (16 char). NON il CF del medico
-  "medico": string|null,                    // medico prescrittore (solo ricetta)
-  "esenzione": string|null,                 // codice esenzione (es "007","C05"), null se assente
-  "data_ricetta": string|null,              // ISO YYYY-MM-DD (data prescrizione)
-  "dpc": boolean,                           // true se compare la sigla DPC
-  "prescrizioni": [                         // una entry per ricetta nel documento (per "ricetta" di solito 1)
-    { "numero_ricetta": "<15 cifre NRE>", "codice_regionale": "<codice regionale>" }
+  "confidence": "low" | "medium" | "high",
+  "has_barcode_code39": boolean,
+  "keyword_prescrizione_trovata": boolean,   // true se vedi la parola "prescrizione" nel documento
+  "nome": string|null,                       // nome assistito
+  "cognome": string|null,                    // cognome assistito
+  "codice_fiscale": string|null,             // CF assistito (16 char), MAI quello del medico
+  "medico": string|null,                     // cognome+nome del medico (solo per "ricetta")
+  "esenzione": string|null,                  // codice esenzione (es "007","C05"), null se assente
+  "data_ricetta": string|null,               // ISO YYYY-MM-DD
+  "dpc": boolean,                            // true se compare la sigla DPC
+  "prescrizioni": [
+    { "numero_ricetta": "<15 cifre>", "codice_regionale": "<5 cifre>" }
   ]
 }
 
-REGOLE CRITICHE codice_fiscale:
-- Sulle ricette SSN ci sono spesso DUE CF: assistito (in alto, "Cognome e nome dell'assistito" / "Codice Fiscale Assistito") e medico (vicino alla firma). Restituisci SOLO quello dell'assistito.
-- Le prime 6 lettere del CF devono essere coerenti con cognome+nome (cognome: 3 consonanti in ordine poi vocali, padding X; nome: se ha >=4 consonanti prendi 1a,3a,4a, altrimenti consonanti+vocali, padding X). Esempio: ROSSI MARIO → RSSMRA.
-- Se il CF letto non rispetta queste 6 lettere, è probabilmente del medico: NON restituirlo, cerca il vero CF dell'assistito.
-- Se non riesci a leggere un CF di 16 caratteri valido, metti null. NON inventare.
+REGOLE CRITICHE codice_fiscale assistito:
+- Sulle ricette ci sono spesso 2 CF: assistito (in alto) e medico (vicino alla firma). Restituisci SOLO quello dell'assistito.
+- Le prime 6 lettere del CF devono combaciare con cognome+nome (cognome: 3 consonanti, poi vocali, padding X; nome: se ≥4 consonanti prendi 1a,3a,4a, altrimenti consonanti+vocali+X). Es: ROSSI MARIO → RSSMRA.
+- Se il CF letto NON rispetta queste 6 lettere, è il CF del medico: NON restituirlo, cerca il vero CF dell'assistito.
+- Se non riesci a leggere un CF di 16 char valido, metti null. NON inventare.
 
-REGOLE per "prescrizioni":
-- "numero_ricetta" è il codice NRE (15 cifre numeriche). Solo cifre, niente spazi.
-- "codice_regionale" è alfanumerico (lettere+cifre). Senza spazi.
-- Se sul documento ci sono più NRE diversi (caso tipico "sintesi"), restituiscili TUTTI come elementi separati.
-- Se il documento non è ricetta né sintesi, restituisci [] e tipo_documento "altro".
+REGOLE prescrizioni:
+- "numero_ricetta" = NRE = ESATTAMENTE 15 cifre numeriche (sole cifre, niente spazi/trattini). Sono il codice regionale (5) + 10 cifre numeriche.
+- "codice_regionale" = ESATTAMENTE 5 cifre numeriche.
+- Se il documento contiene più NRE distinti ("sintesi"), restituiscili TUTTI come elementi separati.
+- Se non è "ricetta" né "sintesi", restituisci [] e tipo_documento "altro".
 
 Rispondi SOLO con il JSON.`;
 
+  // Una sola chiamata sul modello veloce. Retry sul Pro SOLO se il primo output è
+  // nullo/malformato o confidence bassa: niente retry "preventivo" → -50% costi AI.
   const first = await callDocExtraction(apiKey, prompt, base64, mimeType, "google/gemini-2.5-flash");
-  if (first && first.tipo_documento !== "altro" && first.codice_fiscale && cfMatchesName(first.codice_fiscale, first.cognome ?? "", first.nome ?? "")) {
-    return first;
-  }
+  const firstConfident =
+    first &&
+    first.confidence !== "low" &&
+    (first.tipo_documento === "altro" || first.codice_fiscale);
+  if (firstConfident) return first;
   const retry = await callDocExtraction(apiKey, prompt, base64, mimeType, "google/gemini-2.5-pro");
   return retry ?? first;
 }
@@ -770,7 +812,7 @@ export const reprocessExistingRicette = createServerFn({ method: "POST" })
         const cfValid = normalizeCF(ext.codice_fiscale ?? null);
         const pres = ext.prescrizioni ?? [];
         if (!cfValid || pres.length === 0) { failed++; continue; }
-        if (ext.tipo_documento === "ricetta" && !ext.has_barcode_code39) {
+        if (ext.tipo_documento === "ricetta" && !isValidRicettaCanonica(ext, cfValid)) {
           await supabaseAdmin.from("ricette").delete().eq("id", r.id);
           removedAltro++;
           continue;
@@ -984,6 +1026,14 @@ export async function runHubSync(): Promise<{
       continue;
     }
 
+    // Stadio 1: pre-filtro gratis su subject/snippet/filename.
+    const filenames = attachments.map((a) => a.filename ?? "").filter(Boolean);
+    if (!isEmailRelevantForRicetta(subject, msg.snippet ?? "", filenames)) {
+      console.log("Hub sync: email saltata dal pre-filtro keyword", m.id, subject.slice(0, 60));
+      skipped++;
+      continue;
+    }
+
     for (const att of attachments) {
       const attId = att.body?.attachmentId;
       if (!attId) continue;
@@ -1005,19 +1055,22 @@ export async function runHubSync(): Promise<{
       // Filtra documenti non pertinenti.
       if (extracted.tipo_documento === "altro") { skipped++; continue; }
 
-      // Ricetta: deve avere CF + almeno una prescrizione con NRE + barcode Code39.
+      const cfValidCheck = normalizeCF(extracted.codice_fiscale ?? null);
       if (extracted.tipo_documento === "ricetta") {
-        const cfValid = normalizeCF(extracted.codice_fiscale ?? null);
-        const pres = extracted.prescrizioni ?? [];
-        if (!cfValid || pres.length === 0 || !extracted.has_barcode_code39) {
-          console.warn("Ricetta scartata: requisiti minimi mancanti", { cfValid: !!cfValid, pres: pres.length, barcode: extracted.has_barcode_code39 });
+        if (!isValidRicettaCanonica(extracted, cfValidCheck)) {
+          console.warn("Ricetta scartata: requisiti canonici mancanti", {
+            cf: !!cfValidCheck,
+            medico: !!(extracted.medico ?? "").trim(),
+            keyword: !!extracted.keyword_prescrizione_trovata,
+            barcode: !!extracted.has_barcode_code39,
+            pres: (extracted.prescrizioni ?? []).length,
+          });
           skipped++;
           continue;
         }
       } else if (extracted.tipo_documento === "sintesi") {
-        const cfValid = normalizeCF(extracted.codice_fiscale ?? null);
         const pres = extracted.prescrizioni ?? [];
-        if (!cfValid || pres.length === 0) { skipped++; continue; }
+        if (!cfValidCheck || pres.length === 0) { skipped++; continue; }
       }
 
       const cfValid = normalizeCF(extracted.codice_fiscale ?? null);
