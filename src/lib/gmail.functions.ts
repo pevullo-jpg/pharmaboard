@@ -1060,13 +1060,9 @@ export async function runHubSync(): Promise<{
       continue;
     }
 
-    // Stadio 1: pre-filtro gratis su subject/snippet/filename.
-    const filenames = attachments.map((a) => a.filename ?? "").filter(Boolean);
-    if (!isEmailRelevantForRicetta(subject, msg.snippet ?? "", filenames)) {
-      console.log("Hub sync: email saltata dal pre-filtro keyword", m.id, subject.slice(0, 60));
-      skipped++;
-      continue;
-    }
+    // Niente pre-filtro su subject/snippet/filename: ogni PDF/immagine
+    // allegato viene scaricato e analizzato dal parser (deterministico o AI).
+    console.log(`Hub sync: ${m.id} → ${attachments.length} allegato/i`, subject.slice(0, 60));
 
     for (const att of attachments) {
       const attId = att.body?.attachmentId;
