@@ -508,52 +508,67 @@ async function extractDocumentWithAI(base64: string, mimeType: string): Promise<
   const apiKey = process.env.LOVABLE_API_KEY;
   if (!apiKey) throw new Error("LOVABLE_API_KEY missing");
 
-  const prompt = `Sei un OCR specializzato nei documenti del SSN italiano. Devi classificare il documento e estrarre i dati.
+  const prompt = `Sei un OCR specializzato nei documenti del SSN italiano. Classifica il documento e estrai i dati con la MASSIMA precisione.
 
-TIPI DI DOCUMENTO:
-- "ricetta": ricetta medica SSN (cartacea o promemoria DEM). Deve contenere TUTTI questi elementi essenziali:
-    a) codice fiscale dell'ASSISTITO (16 caratteri),
-    b) codice regionale (alfanumerico, sopra/accanto al barcode regionale),
-    c) codice NRE (15 cifre, identificativo nazionale univoco della ricetta),
-    d) almeno UN barcode in formato Code39 (linee verticali nere) associato a NRE o codice regionale.
-  Se MANCA anche solo uno tra CF, codice regionale, NRE o barcode Code39 → NON è una ricetta, classifica come "altro".
-- "sintesi": foglio/elenco di riepilogo che riporta SOLO il CF dell'assistito e una o più coppie (codice regionale + NRE), senza i farmaci. Tipicamente prodotto dal medico per liste promemoria.
-- "altro": qualsiasi altro documento (carta d'identità, tessera sanitaria, scontrini, referti, lettere, brochure). Anche un documento con solo il CF ma SENZA codici regionali+NRE deve essere "altro".
+CLASSIFICAZIONE (tipo_documento):
 
-Restituisci SOLO un JSON puro, senza markdown, in questo formato:
+1) "ricetta" — ricetta medica SSN (cartacea o promemoria DEM). Deve avere TUTTI questi elementi:
+   a) codice fiscale ASSISTITO (16 char),
+   b) nome E cognome dell'ASSISTITO leggibili,
+   c) nome E cognome del MEDICO prescrittore leggibili (firma, timbro o intestazione),
+   d) la parola "prescrizione" o "prescrizione medica" o "promemoria di prescrizione" deve comparire nel testo,
+   e) codice NRE da 15 cifre numeriche (= 5 cifre del codice regionale + 10 cifre numeriche),
+   f) codice regionale (5 cifre numeriche) sopra/accanto al barcode regionale,
+   g) almeno UN barcode in formato Code39 (linee verticali nere).
+   Se MANCA anche uno solo di a–g → NON è una ricetta canonica, classifica come "altro" o "sintesi" secondo i criteri sotto.
+
+2) "sintesi" — foglio di riepilogo con SOLO:
+   - un CF assistito,
+   - una o più coppie (codice regionale 5 cifre + NRE 15 cifre).
+   NESSUN dettaglio farmaco e NESSUN nome del medico. Tipicamente è una stampa di promemoria con elenco di ricette.
+
+3) "altro" — qualsiasi altro documento (carte d'identità, tessere sanitarie, scontrini, referti, lettere, brochure, allegati firma, e qualsiasi documento che non rientri nei criteri di 1 o 2).
+
+Restituisci SOLO JSON puro (no markdown), con questa forma:
 {
   "tipo_documento": "ricetta" | "sintesi" | "altro",
-  "has_barcode_code39": boolean,            // true se vedi almeno un barcode Code39
-  "nome": string|null,                      // nome assistito (solo per ricetta/sintesi)
-  "cognome": string|null,                   // cognome assistito
-  "codice_fiscale": string|null,            // CF assistito (16 char). NON il CF del medico
-  "medico": string|null,                    // medico prescrittore (solo ricetta)
-  "esenzione": string|null,                 // codice esenzione (es "007","C05"), null se assente
-  "data_ricetta": string|null,              // ISO YYYY-MM-DD (data prescrizione)
-  "dpc": boolean,                           // true se compare la sigla DPC
-  "prescrizioni": [                         // una entry per ricetta nel documento (per "ricetta" di solito 1)
-    { "numero_ricetta": "<15 cifre NRE>", "codice_regionale": "<codice regionale>" }
+  "confidence": "low" | "medium" | "high",
+  "has_barcode_code39": boolean,
+  "keyword_prescrizione_trovata": boolean,   // true se vedi la parola "prescrizione" nel documento
+  "nome": string|null,                       // nome assistito
+  "cognome": string|null,                    // cognome assistito
+  "codice_fiscale": string|null,             // CF assistito (16 char), MAI quello del medico
+  "medico": string|null,                     // cognome+nome del medico (solo per "ricetta")
+  "esenzione": string|null,                  // codice esenzione (es "007","C05"), null se assente
+  "data_ricetta": string|null,               // ISO YYYY-MM-DD
+  "dpc": boolean,                            // true se compare la sigla DPC
+  "prescrizioni": [
+    { "numero_ricetta": "<15 cifre>", "codice_regionale": "<5 cifre>" }
   ]
 }
 
-REGOLE CRITICHE codice_fiscale:
-- Sulle ricette SSN ci sono spesso DUE CF: assistito (in alto, "Cognome e nome dell'assistito" / "Codice Fiscale Assistito") e medico (vicino alla firma). Restituisci SOLO quello dell'assistito.
-- Le prime 6 lettere del CF devono essere coerenti con cognome+nome (cognome: 3 consonanti in ordine poi vocali, padding X; nome: se ha >=4 consonanti prendi 1a,3a,4a, altrimenti consonanti+vocali, padding X). Esempio: ROSSI MARIO → RSSMRA.
-- Se il CF letto non rispetta queste 6 lettere, è probabilmente del medico: NON restituirlo, cerca il vero CF dell'assistito.
-- Se non riesci a leggere un CF di 16 caratteri valido, metti null. NON inventare.
+REGOLE CRITICHE codice_fiscale assistito:
+- Sulle ricette ci sono spesso 2 CF: assistito (in alto) e medico (vicino alla firma). Restituisci SOLO quello dell'assistito.
+- Le prime 6 lettere del CF devono combaciare con cognome+nome (cognome: 3 consonanti, poi vocali, padding X; nome: se ≥4 consonanti prendi 1a,3a,4a, altrimenti consonanti+vocali+X). Es: ROSSI MARIO → RSSMRA.
+- Se il CF letto NON rispetta queste 6 lettere, è il CF del medico: NON restituirlo, cerca il vero CF dell'assistito.
+- Se non riesci a leggere un CF di 16 char valido, metti null. NON inventare.
 
-REGOLE per "prescrizioni":
-- "numero_ricetta" è il codice NRE (15 cifre numeriche). Solo cifre, niente spazi.
-- "codice_regionale" è alfanumerico (lettere+cifre). Senza spazi.
-- Se sul documento ci sono più NRE diversi (caso tipico "sintesi"), restituiscili TUTTI come elementi separati.
-- Se il documento non è ricetta né sintesi, restituisci [] e tipo_documento "altro".
+REGOLE prescrizioni:
+- "numero_ricetta" = NRE = ESATTAMENTE 15 cifre numeriche (sole cifre, niente spazi/trattini). Sono il codice regionale (5) + 10 cifre numeriche.
+- "codice_regionale" = ESATTAMENTE 5 cifre numeriche.
+- Se il documento contiene più NRE distinti ("sintesi"), restituiscili TUTTI come elementi separati.
+- Se non è "ricetta" né "sintesi", restituisci [] e tipo_documento "altro".
 
 Rispondi SOLO con il JSON.`;
 
+  // Una sola chiamata sul modello veloce. Retry sul Pro SOLO se il primo output è
+  // nullo/malformato o confidence bassa: niente retry "preventivo" → -50% costi AI.
   const first = await callDocExtraction(apiKey, prompt, base64, mimeType, "google/gemini-2.5-flash");
-  if (first && first.tipo_documento !== "altro" && first.codice_fiscale && cfMatchesName(first.codice_fiscale, first.cognome ?? "", first.nome ?? "")) {
-    return first;
-  }
+  const firstConfident =
+    first &&
+    first.confidence !== "low" &&
+    (first.tipo_documento === "altro" || first.codice_fiscale);
+  if (firstConfident) return first;
   const retry = await callDocExtraction(apiKey, prompt, base64, mimeType, "google/gemini-2.5-pro");
   return retry ?? first;
 }
