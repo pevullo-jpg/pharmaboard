@@ -812,7 +812,7 @@ export const reprocessExistingRicette = createServerFn({ method: "POST" })
         const cfValid = normalizeCF(ext.codice_fiscale ?? null);
         const pres = ext.prescrizioni ?? [];
         if (!cfValid || pres.length === 0) { failed++; continue; }
-        if (ext.tipo_documento === "ricetta" && !ext.has_barcode_code39) {
+        if (ext.tipo_documento === "ricetta" && !isValidRicettaCanonica(ext, cfValid)) {
           await supabaseAdmin.from("ricette").delete().eq("id", r.id);
           removedAltro++;
           continue;
