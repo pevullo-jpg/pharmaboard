@@ -15,7 +15,6 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
 import { Route as AuthenticatedImpostazioniRouteImport } from './routes/_authenticated/impostazioni'
 import { Route as AuthenticatedAssistitiRouteImport } from './routes/_authenticated/assistiti'
-import { Route as AuthenticatedImpostazioniInoltroEmailRouteImport } from './routes/_authenticated/impostazioni_.inoltro-email'
 import { Route as AuthenticatedAssistitiIdRouteImport } from './routes/_authenticated/assistiti.$id'
 import { Route as AuthenticatedAdminEmailPendingRouteImport } from './routes/_authenticated/admin.email-pending'
 import { Route as ApiPublicHooksSyncInboundHubRouteImport } from './routes/api/public/hooks/sync-inbound-hub'
@@ -50,12 +49,6 @@ const AuthenticatedAssistitiRoute = AuthenticatedAssistitiRouteImport.update({
   path: '/assistiti',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
-const AuthenticatedImpostazioniInoltroEmailRoute =
-  AuthenticatedImpostazioniInoltroEmailRouteImport.update({
-    id: '/impostazioni_/inoltro-email',
-    path: '/impostazioni/inoltro-email',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
 const AuthenticatedAssistitiIdRoute =
   AuthenticatedAssistitiIdRouteImport.update({
     id: '/$id',
@@ -83,7 +76,6 @@ export interface FileRoutesByFullPath {
   '/impostazioni': typeof AuthenticatedImpostazioniRoute
   '/admin/email-pending': typeof AuthenticatedAdminEmailPendingRoute
   '/assistiti/$id': typeof AuthenticatedAssistitiIdRoute
-  '/impostazioni/inoltro-email': typeof AuthenticatedImpostazioniInoltroEmailRoute
   '/api/public/hooks/sync-inbound-hub': typeof ApiPublicHooksSyncInboundHubRoute
 }
 export interface FileRoutesByTo {
@@ -94,7 +86,6 @@ export interface FileRoutesByTo {
   '/': typeof AuthenticatedIndexRoute
   '/admin/email-pending': typeof AuthenticatedAdminEmailPendingRoute
   '/assistiti/$id': typeof AuthenticatedAssistitiIdRoute
-  '/impostazioni/inoltro-email': typeof AuthenticatedImpostazioniInoltroEmailRoute
   '/api/public/hooks/sync-inbound-hub': typeof ApiPublicHooksSyncInboundHubRoute
 }
 export interface FileRoutesById {
@@ -107,7 +98,6 @@ export interface FileRoutesById {
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/admin/email-pending': typeof AuthenticatedAdminEmailPendingRoute
   '/_authenticated/assistiti/$id': typeof AuthenticatedAssistitiIdRoute
-  '/_authenticated/impostazioni_/inoltro-email': typeof AuthenticatedImpostazioniInoltroEmailRoute
   '/api/public/hooks/sync-inbound-hub': typeof ApiPublicHooksSyncInboundHubRoute
 }
 export interface FileRouteTypes {
@@ -120,7 +110,6 @@ export interface FileRouteTypes {
     | '/impostazioni'
     | '/admin/email-pending'
     | '/assistiti/$id'
-    | '/impostazioni/inoltro-email'
     | '/api/public/hooks/sync-inbound-hub'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -131,7 +120,6 @@ export interface FileRouteTypes {
     | '/'
     | '/admin/email-pending'
     | '/assistiti/$id'
-    | '/impostazioni/inoltro-email'
     | '/api/public/hooks/sync-inbound-hub'
   id:
     | '__root__'
@@ -143,7 +131,6 @@ export interface FileRouteTypes {
     | '/_authenticated/'
     | '/_authenticated/admin/email-pending'
     | '/_authenticated/assistiti/$id'
-    | '/_authenticated/impostazioni_/inoltro-email'
     | '/api/public/hooks/sync-inbound-hub'
   fileRoutesById: FileRoutesById
 }
@@ -198,13 +185,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAssistitiRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
-    '/_authenticated/impostazioni_/inoltro-email': {
-      id: '/_authenticated/impostazioni_/inoltro-email'
-      path: '/impostazioni/inoltro-email'
-      fullPath: '/impostazioni/inoltro-email'
-      preLoaderRoute: typeof AuthenticatedImpostazioniInoltroEmailRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
     '/_authenticated/assistiti/$id': {
       id: '/_authenticated/assistiti/$id'
       path: '/$id'
@@ -248,7 +228,6 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedImpostazioniRoute: typeof AuthenticatedImpostazioniRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
   AuthenticatedAdminEmailPendingRoute: typeof AuthenticatedAdminEmailPendingRoute
-  AuthenticatedImpostazioniInoltroEmailRoute: typeof AuthenticatedImpostazioniInoltroEmailRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
@@ -256,8 +235,6 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedImpostazioniRoute: AuthenticatedImpostazioniRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
   AuthenticatedAdminEmailPendingRoute: AuthenticatedAdminEmailPendingRoute,
-  AuthenticatedImpostazioniInoltroEmailRoute:
-    AuthenticatedImpostazioniInoltroEmailRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
