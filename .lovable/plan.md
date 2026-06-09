@@ -1,94 +1,108 @@
+# Piano: miglioramento riconoscimento ricette
 
-# Estrazione ricette: deterministica, zero AI
+## Diagnosi (dai sample allegati)
 
-## Risposta breve
-Sì. Quasi tutti i documenti che processiamo (promemoria DEM, ricette cartacee SSN, fogli di sintesi NRE) sono **PDF con layer di testo nativo**, non scansioni. Su questi il parsing regex+layout è più accurato e più economico dell'AI vision. L'AI resta solo come **fallback** per i casi in cui il PDF non ha testo (scansioni pure) o per le immagini JPG/PNG.
+Ho testato il parser attuale sui PDF forniti. Cosa emerge:
 
-## Strategia a 2 livelli
+1. **`unpdf` restituisce TUTTO il testo su una singola riga** (nessun `\n`, gli spazi fra colonne diventano singolo spazio). Il parser oggi si basa su `takeLineAfter` con stop su `\n` o su `\s{2,}LABEL:` → quindi cattura testo "a valanga".
+   - Esempio reale (`1900A4964766295.pdf`):
+     - cognome estratto: `SPITALI` ✓
+     - nome estratto: `CALOGERA INDIRIZZO VIA ROMITA CAP CITTA' GROTTE ... ESCITALOPRAM OSSALATO ---` ✗
+     - medico estratto: `BUSCARINO LUIGICODICE AUTENTICAZIONE ... METOTREXATO SODICO ---` ✗
+2. Per i Promemoria (`Ì1900ADÎ1900A`, `ÌLMBLNE…ÎLMBLNE…`) il testo "barcode + pulito" è incollato. Le ancore funzionano ma il name resolver fallisce perché `resolveAssistitoByCF` testa tutti i token raccolti dal blocco contaminato e non trova match → ritorna `null` → la ricetta viene scartata.
+3. Risultato sui 11 PDF di prova:
+   - 2 estratti come ricetta con `cognome` corretto ma `nome`/`medico` sbagliati → comunque salvabili solo perché `cfMatchesName` controlla solo i primi 6 caratteri del CF → matcha sul cognome+primo nome.
+   - 7 ricette `null` → scartate del tutto.
+   - 1 sintesi (`Elenco_NRE`) estratta con solo 1 NRE su 2.
+4. Pre-filtro keyword in `runHubSync` (`isEmailRelevantForRicetta`) salta intere mail se subject/snippet/filename non contengono "prescriz|ricett|nre|promemoria|dem|ssn|dpc". Da rimuovere.
+5. Il loop attuale itera già su tutti gli allegati PDF/immagine (`collectAttachmentParts` ricorsivo) — OK. Da rinforzare: processare ogni PDF anche se uno fallisce, e includere i PDF *nested* dentro `multipart/related` o `message/rfc822` (forwarded).
 
-```text
-PDF/IMG ricevuto
-   │
-   ├─ è PDF con testo estraibile? ── NO ─► fallback AI vision (come oggi)
-   │           │
-   │           SÌ
-   │           ▼
-   └─► parser deterministico:
-        1. estrai testo + posizioni con `unpdf` o `pdfjs-dist`
-        2. classifica documento (ricetta / sintesi / altro) via pattern
-        3. estrai CF, nome, cognome, medico, NRE, regionale, esenzione, data via regex ancorate alle label SSN ("COGNOME E NOME", "CODICE FISCALE DEL MEDICO", "CODICE AUTENTICAZIONE", ecc.)
-        4. valida (checksum CF, formato NRE 5 alfanumerici + 10 cifre)
+## Cambi proposti
+
+### 1. `src/lib/gmail.functions.ts`
+
+- **Rimuovere** `RICETTA_KEYWORDS` e la chiamata `isEmailRelevantForRicetta` in `runHubSync`. Tutti gli allegati PDF/immagine vengono scaricati e dati al parser.
+- **Estendere `collectAttachmentParts`** per scendere anche in `message/rfc822` e ignorare gli allegati con mime non PDF/immagine (firma S/MIME `application/pkcs7-signature`, `application/octet-stream` solo se filename `.pdf`).
+- **Continuare il loop** sugli allegati anche dopo una `extractDocumentFromAttachment` che fallisce: oggi un `skipped++; continue;` va bene, ma loggiamo il motivo (parser/AI fallback / scartato per validazione).
+- **`runHubSync` log finali**: aggiungere counters `extractedDeterministic / extractedAi / rejectedNoCf / rejectedNameMismatch` per diagnosticare.
+
+### 2. `src/lib/ricette-parser.server.ts` — riscrittura ancorata a label
+
+Approccio: invece di "prendi la riga dopo la label", usiamo **estrazione fra label note** (label-to-label window) con elenco esaustivo delle etichette SSN che troviamo nei sample. Tutte le label sono delimitatori globali; il valore di `LABEL_X` è il testo fra `LABEL_X:` e la prossima label che compare nel testo.
+
+Label set (ordine non rilevante):
+```
+COGNOME E NOME ASSISTITO        (varianti: /COGNOME E NOME(?:\/INIZIALI)?(?:\s+DELL['']?)?\s*ASSISTITO\s*:/i)
+INDIRIZZO:
+CAP:
+CITTA':
+PROV:
+ESENZIONE:
+SIGLA PROVINCIA:
+CODICE ASL:
+DISPOSIZIONI REGIONALI:
+TIPOLOGIA PRESCRIZIONE
+ALTRO:
+PRIORITA' PRESCRIZIONE
+PRESCRIZIONE
+QTA
+NOTA
+QUESITO DIAGNOSTICO:
+N.CONFEZIONI / PRESTAZIONI
+TIPO RICETTA:
+DATA:
+CODICE FISCALE DEL MEDICO:
+CODICE AUTENTICAZIONE:
+COGNOME E NOME DEL MEDICO:
+Rilasciato ai sensi
 ```
 
-## Cosa cambia tecnicamente
+Algoritmo `parseField(text, label, allLabels)`:
+1. Trova `match = labelRegex.exec(text)`.
+2. Da `match.index + match[0].length`, scansiona in avanti finché non trova l'inizio della prossima label (qualunque label del set, non solo successiva in ordine documento).
+3. Ritorna il segmento ripulito (`.replace(/\s+/g," ").trim()`).
 
-### Nuovo file: `src/lib/ricette-parser.server.ts`
-- `parsePdfRicetta(bytes: Uint8Array): Promise<ExtractedDoc | null>`
-- Usa `unpdf` (già edge-compatible, niente binari nativi → ok su Cloudflare Worker).
-- Estrae stringa testuale completa del PDF.
-- Se `text.length < 50` → ritorna `null` (PDF immagine, va all'AI).
-- Altrimenti applica i classificatori in ordine.
+Vantaggi: funziona sia su testo monoriga (unpdf) sia su layout pdftotext, sia su Promemoria che su SSN cartacea.
 
-### Classificatori (pattern-based)
-**Promemoria DEM** (es. `Promemoria_1900A4963790679_…pdf`):
-- header `RICETTA ELETTRONICA-PROMEMORIA PER L'ASSISTITO`
-- NRE nel filename + ripetuto nel body
-- estrai: `Sicilia 1900A 4963790679` → NRE/regionale; `COGNOME E NOME…ASSISTITO:` → nome; CF assistito 16 char vicino all'indirizzo; `COGNOME E NOME DEL MEDICO:` → medico; `CODICE FISCALE DEL MEDICO:` → CF medico (scartato); `CODICE AUTENTICAZIONE:` → progressivo; `DATA:` → data; `ESENZIONE:`.
+Estrazioni specifiche:
+- **Cognome+Nome assistito**: parsa il valore di `COGNOME E NOME ASSISTITO`, normalizza spazi, tokenizza A-Z. Combina con il CF assistito (`resolveAssistitoByCF`) per scegliere la partizione corretta. Il CF è la fonte di verità.
+- **CF assistito**:
+  - Cerca tutti i pattern `[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]` in `text.replace(/[^A-Z0-9]/g,'')` (così include i CF circondati da `Ì…Î`).
+  - Esclude il CF medico (estratto dalla label `CODICE FISCALE DEL MEDICO:`).
+  - Sceglie il CF coerente con cognome+nome dell'header label. Se label assente o non match, **lascia fallback AI** (no salvataggio silenzioso con dati sbagliati).
+- **Medico**: parsa `COGNOME E NOME DEL MEDICO`. Stop hard sulla parola `CODICE AUTENTICAZIONE` o sulla parola `Rilasciato`.
+  - Bug attuale: nel sample `BUSCARINO LUIGICODICE AUTENTICAZIONE…` la label medico viene PRIMA di `CODICE AUTENTICAZIONE` quindi va aggiunta `CODICE AUTENTICAZIONE:` come delimitatore.
+- **NRE**:
+  - Pulisci `text` con `replace(/[^A-Z0-9]/g, ' ')` (rimuove `Ì Î Ë * $ y z` ecc.).
+  - Regex `(?<![A-Z0-9])([A-Z0-9]{5})\s+(\d{10})(?![A-Z0-9])` con lookaround invece di `\b` per evitare match sporchi tipo `900AC + 4963790679` quando in input c'è `1900AC`. Codice regionale validato come `\d{4}[A-Z0-9]` (es. `1900A`, `0301G`).
+  - Dedup case-insensitive sul `full = reg+num`.
+  - Pre-filtra: scarta NRE che combaciano col CF assistito o col CF medico (15 cifre interne).
+- **Sintesi** (`Elenco_NRE.pdf`): pattern `PIN-NRBE` o tabella `Data NRE PIN-NRBE`. Tutti gli NRE trovati sono prescrizioni. CF unico nel documento = CF assistito.
+- **Esenzione**: subito dopo `ESENZIONE:` fino allo spazio o alla prossima label.
+- **Data**: regex `DATA[^0-9]*?(\d{2}/\d{2}/\d{4})` → ISO.
+- **DPC**: boolean su parola `DPC`.
 
-**Ricetta SSN cartacea** (es. `1900A4964766295.pdf`):
-- header `SERVIZIO SANITARIO NAZIONALE` + `REGIONE …` + barcode-text `*1900A* *4964766295*`
-- stessa griglia di label, ma CF assistito può mancare → ricetta resta orfana.
+### 3. Validazione e fallback
 
-**Foglio di sintesi NRE** (es. `Elenco_NRE.pdf`):
-- presenza ripetuta di label `NRE` e `PIN-NRBE`, **assenza** di blocco PRESCRIZIONE/QTA/farmaco
-- 1 CF assistito + lista di NRE → tipo `sintesi`.
+- `parsePdfRicetta` ritorna `null` SOLO quando il PDF non ha testo (scansione pura) o quando il testo non contiene NESSUN marker SSN noto. Altrimenti ritorna l'`ExtractedDoc` con confidence:
+  - `high`: CF + nome coerente + medico + ≥1 NRE → salvato direttamente.
+  - `low`: manca uno dei requisiti → caller decide se fare fallback AI.
+- In `extractDocumentFromAttachment` (gmail.functions.ts): se parser ritorna `null` OR `confidence === "low"` → fallback `extractDocumentWithAI`.
+- Regola "no CF assistito → no ricetta" mantenuta in `isValidRicettaCanonica`.
 
-**Altro**: nessun pattern combacia → eliminato.
+### 4. Verifica
 
-### Regex ancorate alle label (anti-rumore)
-Tutte case-insensitive, multilinea:
-- CF (16 char): `/[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]/` + verifica checksum (già in `gmail.functions.ts`).
-- NRE: `/\b([A-Z0-9]{5})[ \t]*(\d{10})\b/` (regionale + numerico, con spazio opzionale come in `1900A 4963790679`).
-- Nome assistito: cattura dopo `COGNOME E NOME[^:]*ASSISTITO:` fino a fine riga.
-- Medico: dopo `COGNOME E NOME DEL MEDICO:`.
-- Esenzione: dopo `ESENZIONE:` fino a `SIGLA PROVINCIA` o newline.
-- Data: dopo `DATA:` formato `dd/mm/yyyy` → ISO.
+Aggiungere uno script di test locale `scripts/test-parser.ts` (gitignored o no — TBD) che gira il parser su ogni PDF in `/mnt/user-uploads/` e stampa un report. Pre/post-cambio confronto:
+- Oggi: 2/11 ricette estratte correttamente (cognome OK, nome/medico sporchi), 1/1 sintesi parziale.
+- Atteso: 7/7 ricette + 2/2 promemoria + 1/1 sintesi con tutti i 2 NRE = 10/10 OK; 1 caso (`1900A4964779467` con CF `PRDVCN…`) verificato a parte.
 
-### Validazione (stessa di oggi)
-- CF: checksum + prime 6 lettere coerenti con cognome+nome → se KO, è il CF del medico, scartalo.
-- NRE: `[A-Z0-9]{5}\d{10}` (15 char).
-- Ricetta canonica: nome+cognome+medico+NRE+almeno una occorrenza di "prescrizione" nel testo.
+## File toccati
 
-### Modifiche a `src/lib/gmail.functions.ts`
-- Nuovo flusso in `runHubSync` e `reprocessExistingRicette`:
-  1. download allegato → bytes.
-  2. se PDF: `parsePdfRicetta(bytes)`.
-  3. se ritorna `null` o classifica `ambiguous` → fallback su `extractDocumentWithAI` (codice attuale).
-  4. immagini JPG/PNG: vanno direttamente all'AI vision (nessun cambiamento).
-- `extractDocumentWithAI` resta come fallback; non viene rimosso.
+- `src/lib/gmail.functions.ts` — rimuovi pre-filtro, estendi `collectAttachmentParts`, logging.
+- `src/lib/ricette-parser.server.ts` — riscrittura con label-window.
+- (opz.) `scripts/test-parser.ts` — harness di test.
 
-### Telemetria
-Contatori distinti in output di sync/reprocess:
-- `parsed_deterministic`, `parsed_ai_fallback`, `parsed_image_ai`, `failed`.
+## Domande
 
-## Dipendenza
-- Aggiungere `unpdf` (pure-JS, ESM, runtime Worker-compatibile, ~200 KB). Niente `pdf-parse` (Node-only, usa `fs`).
-- `pdf-lib` già presente: si tiene per il merge.
-
-## Risparmio atteso
-- Su promemoria DEM e ricette cartacee con layer testo (la grande maggioranza): **0 chiamate AI**.
-- AI solo per: immagini, PDF scansionati, PDF dove il parser non trova abbastanza segnali.
-- Riduzione chiamate AI stimata: 80–95% del traffico attuale.
-- Latenza per documento: da ~3–8 s (vision) a ~50–200 ms (regex su testo).
-
-## Limiti onesti
-- I PDF promemoria sono standardizzati a livello nazionale, quindi il parser è affidabile. Le ricette cartacee SSN regionali hanno piccole varianti di layout: il parser si basa sulle **label di testo** (stabili in tutta Italia per regolamento DM 2/11/2011), non sulle coordinate, quindi tollera differenze grafiche.
-- Documenti rari/non standard cadono nel fallback AI. Nessuna ricetta viene mai persa "silenziosamente".
-
-## Cosa NON cambia
-- Schema DB, UI, logica di dedup per NRE, gestione orfani, validazione CF.
-- L'AI fallback resta identico → comportamento sui casi limite invariato.
-
-## Conferme prima di partire
-1. Procedo direttamente con `unpdf` o preferisci `pdfjs-dist` (più pesante ma standard)?
-2. Sui PDF deterministici, se il parser estrae con successo NRE+nome+medico ma manca CF assistito → salvo come orfano (come da regola attuale)?
+1. OK rimuovere completamente il pre-filtro keyword (ogni mail con PDF/immagine verrà analizzata, anche newsletter)? In alternativa lo posso allargare invece di rimuoverlo.
+2. Quando il parser estrae NRE+nome ma il CF non combacia con il nome (ricetta cartacea con CF illeggibile o assente), **rifiuto totale** (regola attuale) oppure **salvo come orfano** in `orphan_ricette` per merge successivo?
