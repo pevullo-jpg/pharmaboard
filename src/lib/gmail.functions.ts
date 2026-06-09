@@ -851,14 +851,31 @@ export async function runHubSync(): Promise<{
       const base64 = base64UrlToBase64(attData.data);
 
       const mime = att.mimeType ?? "application/octet-stream";
-      const extracted = await extractRicettaWithAI(base64, mime);
-      if (!extracted) continue;
+      const extracted = await extractDocumentWithAI(base64, mime);
+      if (!extracted) { skipped++; continue; }
 
-      let assistitoId: string | null = null;
+      // Filtra documenti non pertinenti.
+      if (extracted.tipo_documento === "altro") { skipped++; continue; }
+
+      // Ricetta: deve avere CF + almeno una prescrizione con NRE + barcode Code39.
+      if (extracted.tipo_documento === "ricetta") {
+        const cfValid = normalizeCF(extracted.codice_fiscale ?? null);
+        const pres = extracted.prescrizioni ?? [];
+        if (!cfValid || pres.length === 0 || !extracted.has_barcode_code39) {
+          console.warn("Ricetta scartata: requisiti minimi mancanti", { cfValid: !!cfValid, pres: pres.length, barcode: extracted.has_barcode_code39 });
+          skipped++;
+          continue;
+        }
+      } else if (extracted.tipo_documento === "sintesi") {
+        const cfValid = normalizeCF(extracted.codice_fiscale ?? null);
+        const pres = extracted.prescrizioni ?? [];
+        if (!cfValid || pres.length === 0) { skipped++; continue; }
+      }
+
       const cfValid = normalizeCF(extracted.codice_fiscale ?? null);
       const nome = (extracted.nome ?? "").trim();
       const cognome = (extracted.cognome ?? "").trim();
-      assistitoId = await resolveOrCreateAssistito({
+      const assistitoId = await resolveOrCreateAssistito({
         farmaciaId,
         cf: cfValid,
         nome,
@@ -868,27 +885,47 @@ export async function runHubSync(): Promise<{
       });
 
       const isDpc = !!extracted.dpc;
-      const { error: rErr } = await supabaseAdmin.from("ricette").insert({
-        farmacia_id: farmaciaId,
-        assistito_id: assistitoId,
-        nome: extracted.nome ?? null,
-        cognome: extracted.cognome ?? null,
-        codice_fiscale: cfValid,
-        medico: extracted.medico ?? null,
-        esenzione: extracted.esenzione ?? null,
-        data_ricetta: extracted.data_ricetta ?? null,
-        numero_ricetta: extracted.numero_ricetta ?? null,
-        dpc: isDpc,
-        is_dpc_alert: isDpc,
-        source: "gmail",
-        source_email_id: m.id,
-        stato: "nuova",
-      });
-      if (rErr) {
-        console.error("Insert ricetta failed", rErr.message);
-        continue;
+      const tipo = extracted.tipo_documento;
+
+      for (const p of extracted.prescrizioni ?? []) {
+        if (!p.numero_ricetta) continue;
+        // Dedup per NRE: una ricetta con stesso NRE non va reimportata.
+        const { data: existsNre } = await supabaseAdmin
+          .from("ricette")
+          .select("id")
+          .eq("farmacia_id", farmaciaId)
+          .eq("numero_ricetta", p.numero_ricetta)
+          .limit(1);
+        if (existsNre && existsNre.length > 0) {
+          // Sintesi: salta sempre. Ricetta full: salta comunque (è la stessa ricetta).
+          skipped++;
+          continue;
+        }
+
+        const { error: rErr } = await supabaseAdmin.from("ricette").insert({
+          farmacia_id: farmaciaId,
+          assistito_id: assistitoId,
+          nome: extracted.nome ?? null,
+          cognome: extracted.cognome ?? null,
+          codice_fiscale: cfValid,
+          medico: extracted.medico ?? null,
+          esenzione: extracted.esenzione ?? null,
+          data_ricetta: extracted.data_ricetta ?? null,
+          numero_ricetta: p.numero_ricetta,
+          codice_regionale: p.codice_regionale ?? null,
+          tipo_documento: tipo,
+          dpc: isDpc,
+          is_dpc_alert: isDpc,
+          source: "gmail",
+          source_email_id: m.id,
+          stato: "nuova",
+        });
+        if (rErr) {
+          console.error("Insert ricetta failed", rErr.message);
+          continue;
+        }
+        importedRicette++;
       }
-      importedRicette++;
     }
   }
 
