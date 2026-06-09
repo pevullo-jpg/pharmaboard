@@ -1,10 +1,14 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { createFileRoute } from "@tanstack/react-router";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Stethoscope, ChevronRight, ChevronDown, Package, Mail } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Stethoscope, ChevronRight, ChevronDown, Package, RefreshCcw, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { reprocessExistingRicette } from "@/lib/gmail.functions";
+import { toast } from "sonner";
 import { format } from "date-fns";
 import { it } from "date-fns/locale";
 
@@ -20,25 +24,52 @@ function ImpostazioniPage() {
         <h1 className="text-3xl font-semibold tracking-tight">Gestione anticipi</h1>
       </div>
 
-      <Link to="/impostazioni/inoltro-email" className="block">
-        <Card className="glass-card p-5 hover:bg-sidebar-accent/30 transition-colors">
-          <div className="flex items-center gap-4">
-            <div className="size-12 rounded-xl bg-gradient-to-br from-primary to-accent grid place-items-center shrink-0 accent-glow">
-              <Mail className="size-6 text-primary-foreground" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <h2 className="font-semibold">Inoltro email ricette</h2>
-              <p className="text-sm text-muted-foreground mt-0.5">
-                Configura l'indirizzo di inoltro e rielabora le ricette già importate
-              </p>
-            </div>
-            <ChevronRight className="size-5 text-muted-foreground shrink-0" />
-          </div>
-        </Card>
-      </Link>
+      <RielaborazioneSection />
 
       <MediciSection />
     </div>
+  );
+}
+
+function RielaborazioneSection() {
+  const reprocess = useServerFn(reprocessExistingRicette);
+  const qc = useQueryClient();
+  const mut = useMutation({
+    mutationFn: () => reprocess(),
+    onSuccess: (r) => {
+      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["medici"] });
+      toast.success(
+        `Rielaborate ${r.processed} · aggiornate ${r.updated} · rimosse ${r.removedAltro} (non ricette) · duplicate ${r.removedDup}${r.failed ? ` · errori ${r.failed}` : ""}`,
+      );
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <Card className="glass-card p-6">
+      <div className="flex gap-4">
+        <div className="size-12 rounded-xl bg-accent/15 text-accent grid place-items-center shrink-0">
+          <RefreshCcw className="size-6" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h2 className="font-semibold">Rielaborazione dati</h2>
+          <p className="text-sm text-muted-foreground mt-1 mb-4">
+            Riapplica il riconoscimento aggiornato (CF + codice regionale + NRE + barcode Code39) ai documenti già in archivio, aggiorna i dati degli assistiti e rimuove i record incoerenti (non ricette e duplicati).
+          </p>
+          <Button
+            onClick={() => {
+              if (window.confirm("Procedere con la rielaborazione? Può richiedere alcuni minuti.")) mut.mutate();
+            }}
+            disabled={mut.isPending}
+            className="gap-2"
+          >
+            {mut.isPending ? <Loader2 className="size-4 animate-spin" /> : <RefreshCcw className="size-4" />}
+            {mut.isPending ? "Rielaborazione in corso…" : "Avvia rielaborazione"}
+          </Button>
+        </div>
+      </div>
+    </Card>
   );
 }
 
