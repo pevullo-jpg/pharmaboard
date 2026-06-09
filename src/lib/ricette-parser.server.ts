@@ -1,6 +1,5 @@
 import { extractText, getDocumentProxy } from "unpdf";
-import { normalizeCF, cfMatchesName, cfPrefixFromName } from "./cf-utils.server";
-import type { ExtractedDoc } from "./gmail-types";
+import { normalizeCF, cfMatchesName, cfPrefixFromName, type ExtractedDoc } from "./gmail.functions";
 
 /**
  * Parser deterministico per ricette/promemoria/sintesi SSN italiani.
@@ -70,7 +69,7 @@ export function classifyAndExtract(rawText: string): ExtractedDoc | null {
     const esenzione = parseEsenzione(text);
     const dataRicetta = parseData(text);
     const cfMedico = parseCfMedico(text);
-    const cf = pickAssistitoCf(text, cognome, nome, cfMedico ? [cfMedico] : []);
+    const cf = pickAssistitoCf(text, cognome ?? "", nome ?? "", cfMedico ? [cfMedico] : []);
 
     if (!nome || !cognome || !medico) {
       // Dati minimi mancanti: lascia all'AI per il retry.
