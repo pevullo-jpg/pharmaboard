@@ -80,7 +80,12 @@ function AssistitiPage() {
   const create = useMutation({
     mutationFn: async (input: { nome: string; cognome: string; codice_fiscale?: string; medico?: string; esenzione?: string; telefono?: string }) => {
       const { error } = await supabase.from("assistiti").insert(input);
-      if (error) throw error;
+      if (error) {
+        if (error.code === "23505" || /duplicate key|assistiti_farmacia_cf_uniq/i.test(error.message)) {
+          throw new Error("Esiste già un assistito con questo codice fiscale in questa farmacia");
+        }
+        throw error;
+      }
     },
     onSuccess: () => {
       toast.success("Assistito aggiunto");
