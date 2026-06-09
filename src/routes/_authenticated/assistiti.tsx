@@ -124,7 +124,13 @@ function AssistitiPage() {
 
       <div className="relative max-w-md">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-        <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cerca per nome, cognome o codice fiscale…" className="pl-9" />
+        <Input
+          aria-label="Cerca assistiti per nome, cognome o codice fiscale"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Cerca per nome, cognome o codice fiscale…"
+          className="pl-9"
+        />
       </div>
 
       <Card className="glass-card overflow-hidden">
@@ -165,6 +171,7 @@ function AssistitiPage() {
                     size="icon"
                     variant="ghost"
                     className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                    aria-label={`Elimina assistito ${a.cognome} ${a.nome}`}
                     onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteId(a.id); }}
                   >
                     <Trash2 className="size-4" />
