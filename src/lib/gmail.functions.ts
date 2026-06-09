@@ -1186,29 +1186,26 @@ export async function runHubSync(): Promise<{
         }
         importedRicette++;
       }
-    }
 
-    // Riallineo: ricette appena inserite con assistito_id null ma CF valido →
-    // riaggancia all'assistito ora che esiste (caso sintesi processata prima
-    // della ricetta, o lookup byCf andato in race nello stesso loop).
-    if (cfValidByMessage.size > 0) {
-      for (const [emailCf, fId] of cfValidByMessage) {
+      // Riallineo: se l'assistito è stato creato DOPO l'insert di una
+      // sintesi orfana (o se è andato in race) ricolleghiamo tutte le
+      // ricette di questo CF nella farmacia.
+      if (cfValid && !assistitoId) {
         const { data: aRow } = await supabaseAdmin
           .from("assistiti")
           .select("id")
-          .eq("farmacia_id", fId)
-          .eq("codice_fiscale", emailCf)
+          .eq("farmacia_id", farmaciaId)
+          .eq("codice_fiscale", cfValid)
           .maybeSingle();
         if (aRow) {
           await supabaseAdmin
             .from("ricette")
             .update({ assistito_id: aRow.id })
-            .eq("farmacia_id", fId)
-            .eq("codice_fiscale", emailCf)
+            .eq("farmacia_id", farmaciaId)
+            .eq("codice_fiscale", cfValid)
             .is("assistito_id", null);
         }
       }
-      cfValidByMessage.clear();
     }
   }
 
