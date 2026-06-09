@@ -1052,7 +1052,7 @@ export async function runHubSync(): Promise<{
       const base64 = base64UrlToBase64(attData.data);
 
       const mime = att.mimeType ?? "application/octet-stream";
-      const extracted = await extractDocumentWithAI(base64, mime);
+      const extracted = await extractDocumentFromAttachment(base64, mime);
       if (!extracted) { skipped++; continue; }
 
       // Filtra documenti non pertinenti.
