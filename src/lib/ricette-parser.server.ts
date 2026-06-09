@@ -272,10 +272,17 @@ function resolveAssistitoByCF(
   const cfCandidates = allCFs(text, cfMedico ? [cfMedico] : []);
   if (cfCandidates.length === 0) return null;
 
-  const raw = parseField(text, "ASSISTITO_NOME");
-  const tokens = raw
+  // Toglie dal valore della label assistito eventuali CF (in chiaro o
+  // delimitati da Ì…Î / *…* ) prima di tokenizzare, così tokens non
+  // contiene pezzi del codice fiscale come "ÌLMBLNE".
+  let nameRaw = parseField(text, "ASSISTITO_NOME");
+  for (const c of cfCandidates) {
+    // Stripa anche un eventuale check-char attaccato a fine CF (es. "M9Î").
+    nameRaw = nameRaw.replace(new RegExp(`[^A-Z0-9]?${c}[A-Z0-9]?`, "gi"), " ");
+  }
+  const tokens = nameRaw
     .toUpperCase()
-    .replace(/[^A-ZÀ-Ÿ' \-]/g, " ")
+    .replace(/[^A-Z' \-]/g, " ")
     .split(/\s+/)
     .map((s) => s.trim())
     .filter((s) => s.length >= 2);
@@ -313,6 +320,23 @@ function resolveAssistitoByCF(
   }
 
   return null;
+}
+
+/**
+ * Ripulisce il nome medico estratto dalla label window. Casi visti:
+ *  - "BUSCARINO LUIGICODICE AUTENTICAZIONE: 0806…"  → "BUSCARINO LUIGI"
+ *  - "ORLANDO GIACOMO Rilasciato ai sensi …"        → "ORLANDO GIACOMO"
+ * Strategia: tronca al primo marker noto (CODICE, RILASCIATO) anche se
+ * incollato senza spazio, e rimuove qualsiasi sequenza di 5+ cifre.
+ */
+function sanitizeMedico(raw: string): string {
+  if (!raw) return "";
+  let v = raw;
+  v = v.replace(/CODICE\s*AUTENTICAZIONE[\s\S]*$/i, "");
+  v = v.replace(/Rilasciato\s+ai\s+sensi[\s\S]*$/i, "");
+  v = v.replace(/\d{5,}/g, " ");
+  v = v.replace(/[^A-ZÀ-Ÿ' \-]/gi, " ");
+  return v.replace(/\s+/g, " ").trim().toUpperCase();
 }
 
 // Riesporta utilità CF per chi importa solo questo modulo (test, ecc.)
