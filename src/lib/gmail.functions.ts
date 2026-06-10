@@ -134,7 +134,7 @@ async function resolveOrCreateAssistito(args: {
     // Se l'assistito esiste con placeholder (creato da una sintesi che
     // conteneva solo CF) e ora abbiamo nome/cognome reali, aggiorniamoli.
     const isPlaceholder = (s: string | null) => !s || s === "(sconosciuto)";
-    const patch: Record<string, string> = {};
+    const patch: { nome?: string; cognome?: string } = {};
     if (isPlaceholder(byCf.cognome) && cognome) patch.cognome = cognome;
     if (isPlaceholder(byCf.nome) && nome) patch.nome = nome;
     if (Object.keys(patch).length > 0) {
