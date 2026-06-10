@@ -1085,8 +1085,10 @@ export async function runHubSync(): Promise<{
 }> {
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
 
-  // Tutte le ricette/prescrizioni con allegato negli ultimi 30 giorni.
-  const query = encodeURIComponent("has:attachment newer_than:30d (ricetta OR prescrizione OR DPC)");
+  // Solo email NON LETTE con allegato negli ultimi 30 giorni: una volta
+  // esaminate (valide o meno) vengono marcate come lette così non vengono
+  // più riprocessate.
+  const query = encodeURIComponent("is:unread has:attachment newer_than:30d (ricetta OR prescrizione OR DPC)");
   const listRes = await fetch(`${GATEWAY_URL}/users/me/messages?maxResults=50&q=${query}`, {
     headers: gmailHeaders(),
   });
