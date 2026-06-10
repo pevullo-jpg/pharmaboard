@@ -147,12 +147,33 @@ async function resolveOrCreateAssistito(args: {
   // sintesi non conosciamo nome/cognome → li riempiamo con placeholder,
   // così l'assistito compare comunque in dashboard e nell'elenco assistiti
   // (verranno aggiornati alla prima ricetta canonica con lo stesso CF).
+  // 2a) Prima di ricorrere al placeholder, prova un lookup cross-farmacia
+  // sullo stesso CF: se in un'altra farmacia esiste già un assistito con
+  // nome/cognome reali, copiamo l'anagrafica minima qui.
+  let fallbackNome = nome;
+  let fallbackCognome = cognome;
+  if (!fallbackNome || !fallbackCognome) {
+    const { data: cross } = await supabaseAdmin
+      .from("assistiti")
+      .select("nome, cognome, updated_at")
+      .eq("codice_fiscale", cf)
+      .neq("farmacia_id", farmaciaId)
+      .neq("nome", "(sconosciuto)")
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (cross) {
+      if (!fallbackNome && cross.nome) fallbackNome = cross.nome;
+      if (!fallbackCognome && cross.cognome) fallbackCognome = cross.cognome;
+      console.log("resolveAssistito: cross-farmacia name lookup hit", cf, "→", cross.cognome, cross.nome);
+    }
+  }
   const { data: created, error: cErr } = await supabaseAdmin
     .from("assistiti")
     .insert({
       farmacia_id: farmaciaId,
-      nome: nome || "(sconosciuto)",
-      cognome: cognome || "(sconosciuto)",
+      nome: fallbackNome || "(sconosciuto)",
+      cognome: fallbackCognome || "(sconosciuto)",
       codice_fiscale: cf,
       medico,
       esenzione,
