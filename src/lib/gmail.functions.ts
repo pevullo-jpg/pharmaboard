@@ -375,14 +375,14 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
         cf = extractCfFromText(r.raw_text) ?? "";
       }
       if (cf.length !== 16 && r.source_email_id) {
-        // Ultimo tentativo: ri-scarica l'allegato e ri-estrai con AI.
+        // Ultimo tentativo: ri-scarica l'allegato e prova il parser deterministico.
         try {
           const att = await fetchFirstAttachmentBytes(r.source_email_id);
-          if (att) {
-            const b64 = uint8ToBase64(att.bytes);
-            const ext = await extractRicettaWithAI(b64, att.mimeType);
-            const aiCf = normalizePersonValue(ext?.codice_fiscale);
-            cf = aiCf.length === 16 ? aiCf : (extractCfFromText(JSON.stringify(ext)) ?? "");
+          if (att && att.mimeType === "application/pdf") {
+            const { parsePdfRicetta } = await import("./ricette-parser.server");
+            const det = await parsePdfRicetta(att.bytes);
+            const detCf = normalizePersonValue(det?.codice_fiscale);
+            cf = detCf.length === 16 ? detCf : "";
             if (cf.length === 16) {
               await supabase.from("ricette").update({ codice_fiscale: cf }).eq("id", r.id);
             }
