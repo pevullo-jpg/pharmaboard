@@ -347,8 +347,16 @@ function FarmaciaDashboard() {
       const deduped = dedupePerAssistito(all);
       const expired = deduped.filter((r) => r._kind === "expired").sort((a, b) => (b._days ?? 0) - (a._days ?? 0));
       const expiring = deduped.filter((r) => r._kind === "expiring").sort((a, b) => (b._days ?? 0) - (a._days ?? 0));
-      const normal = deduped.filter((r) => r._kind === "normal").slice(0, 8);
-      return [...expired, ...expiring, ...normal];
+      const shown = new Set([...expired, ...expiring].map((r) => r._assistito_id ?? r.assistito_id ?? r.id));
+      const dpc = deduped.filter((r) => !shown.has(r._assistito_id ?? r.assistito_id ?? r.id) && r.is_dpc_alert);
+      const shown2 = new Set([...expired, ...expiring, ...dpc].map((r) => r._assistito_id ?? r.assistito_id ?? r.id));
+      const normal = deduped.filter((r) => !shown2.has(r._assistito_id ?? r.assistito_id ?? r.id)).slice(0, 8);
+      return [
+        ...expired.map((r) => ({ ...r, _section: "expired" as const })),
+        ...expiring.map((r) => ({ ...r, _section: "expiring" as const })),
+        ...dpc.map((r) => ({ ...r, _section: "dpc" as const })),
+        ...normal.map((r) => ({ ...r, _section: "normal" as const })),
+      ];
     }
     let matched = all;
     if (filter === "ricette") matched = all.filter((r) => r.stato === "nuova");
