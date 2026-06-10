@@ -90,6 +90,10 @@ export function classifyAndExtract(rawText: string): ExtractedDoc | null {
 
     // Senza CF assistito coerente con un nome → lasciamo all'AI per retry.
     if (!resolved) return null;
+    // Ricetta senza NRE estraibile dal layer di testo: capita su PDF "ibridi"
+    // dove il NRE è solo nel barcode/immagine. Cediamo all'AI vision invece
+    // di salvare una ricetta vuota che verrebbe scartata silenziosamente.
+    if (nres.length === 0) return null;
     const { nome, cognome, cf } = resolved;
 
     return {

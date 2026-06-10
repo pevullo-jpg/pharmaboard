@@ -1011,15 +1011,10 @@ export async function runHubSync(): Promise<{
   }
 
   for (const m of messages) {
-    const { data: existing } = await supabaseAdmin
-      .from("ricette")
-      .select("id")
-      .eq("source_email_id", m.id)
-      .limit(1);
-    if (existing && existing.length > 0) {
-      skipped++;
-      continue;
-    }
+    // Niente early-skip per source_email_id: una mail può contenere più
+    // allegati e, se uno solo era stato importato (o un PDF era illeggibile
+    // al primo passaggio), salteremmo per sempre gli altri. La dedup vera
+    // avviene per (farmacia_id, numero_ricetta) più sotto.
 
     const msgRes = await fetch(`${GATEWAY_URL}/users/me/messages/${m.id}?format=full`, {
       headers: gmailHeaders(),
