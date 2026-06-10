@@ -353,7 +353,7 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
     // Linked ricette
     const { data: linked, error: lErr } = await supabase
       .from("ricette")
-      .select("id, source_email_id, data_ricetta, created_at")
+      .select("id, source_email_id, data_ricetta, created_at, tipo_documento")
       .eq("assistito_id", data.assistitoId)
       .not("source_email_id", "is", null);
     if (lErr) throw new Error(lErr.message);
@@ -405,7 +405,10 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
 
     const orphans = matchedOrphans.map((r) => ({ id: r.id, source_email_id: r.source_email_id, data_ricetta: r.data_ricetta, created_at: r.created_at }));
 
-    const ricette = [...(linked ?? []), ...orphans].sort((a, b) => {
+    // Solo ricette vere: scartiamo "sintesi" e "altro" (gli orfani senza tipo
+    // assumiamo siano ricette in attesa di riclassificazione).
+    const linkedRicette = (linked ?? []).filter((r) => (r.tipo_documento ?? "ricetta") === "ricetta");
+    const ricette = [...linkedRicette, ...orphans].sort((a, b) => {
       const da = a.data_ricetta ?? a.created_at ?? "";
       const db = b.data_ricetta ?? b.created_at ?? "";
       return da.localeCompare(db);
@@ -419,31 +422,49 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
     let added = 0;
     const errors: string[] = [];
 
+    // Più ricette possono condividere la stessa source_email_id (email con N
+    // allegati = N righe ricetta). Scarichiamo TUTTI gli allegati una volta
+    // sola per email, così evitiamo di duplicare lo stesso PDF e includiamo
+    // ogni ricetta reale presente nell'email.
+    const seenEmails = new Set<string>();
+    const orderedEmails: string[] = [];
     for (const r of ricette) {
       if (!r.source_email_id) continue;
+      if (seenEmails.has(r.source_email_id)) continue;
+      seenEmails.add(r.source_email_id);
+      orderedEmails.push(r.source_email_id);
+    }
+
+    for (const emailId of orderedEmails) {
       try {
-        const att = await fetchFirstAttachmentBytes(r.source_email_id);
-        if (!att) { errors.push(`Ricetta ${r.id}: allegato non trovato`); continue; }
-        if (att.mimeType === "application/pdf") {
-          const src = await PDFDocument.load(att.bytes, { ignoreEncryption: true });
-          const pages = await merged.copyPages(src, src.getPageIndices());
-          pages.forEach((p) => merged.addPage(p));
-          added++;
-        } else if (att.mimeType === "image/jpeg" || att.mimeType === "image/jpg") {
-          const img = await merged.embedJpg(att.bytes);
-          const page = merged.addPage([img.width, img.height]);
-          page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
-          added++;
-        } else if (att.mimeType === "image/png") {
-          const img = await merged.embedPng(att.bytes);
-          const page = merged.addPage([img.width, img.height]);
-          page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
-          added++;
-        } else {
-          errors.push(`Ricetta ${r.id}: tipo non supportato (${att.mimeType})`);
+        const atts = await fetchAllAttachmentsBytes(emailId);
+        if (atts.length === 0) { errors.push(`Email ${emailId}: nessun allegato`); continue; }
+        for (const att of atts) {
+          try {
+            if (att.mimeType === "application/pdf") {
+              const src = await PDFDocument.load(att.bytes, { ignoreEncryption: true });
+              const pages = await merged.copyPages(src, src.getPageIndices());
+              pages.forEach((p) => merged.addPage(p));
+              added++;
+            } else if (att.mimeType === "image/jpeg" || att.mimeType === "image/jpg") {
+              const img = await merged.embedJpg(att.bytes);
+              const page = merged.addPage([img.width, img.height]);
+              page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
+              added++;
+            } else if (att.mimeType === "image/png") {
+              const img = await merged.embedPng(att.bytes);
+              const page = merged.addPage([img.width, img.height]);
+              page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
+              added++;
+            } else {
+              errors.push(`Email ${emailId}: tipo non supportato (${att.mimeType})`);
+            }
+          } catch (e) {
+            errors.push(`Email ${emailId}: ${e instanceof Error ? e.message : "errore"}`);
+          }
         }
       } catch (e) {
-        errors.push(`Ricetta ${r.id}: ${e instanceof Error ? e.message : "errore"}`);
+        errors.push(`Email ${emailId}: ${e instanceof Error ? e.message : "errore"}`);
       }
     }
 
