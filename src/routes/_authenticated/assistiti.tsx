@@ -214,6 +214,12 @@ function AssistitiPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={!!detailId} onOpenChange={(open) => { if (!open) setDetailId(null); }}>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+          {detailId && <AssistitoDetail key={detailId} id={detailId} onClose={() => setDetailId(null)} />}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
