@@ -287,6 +287,30 @@ async function fetchFirstAttachmentBytes(emailId: string): Promise<{ bytes: Uint
   return { bytes, mimeType: att.mimeType ?? "application/octet-stream" };
 }
 
+async function fetchAllAttachmentsBytes(emailId: string): Promise<{ bytes: Uint8Array; mimeType: string }[]> {
+  const msgRes = await fetch(`${GATEWAY_URL}/users/me/messages/${emailId}?format=full`, { headers: gmailHeaders() });
+  if (!msgRes.ok) return [];
+  const msg = (await msgRes.json()) as GmailMessage;
+  const atts = collectAttachmentParts(msg.payload?.parts);
+  if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType === "application/pdf" || msg.payload.mimeType.startsWith("image/"))) {
+    atts.push({ mimeType: msg.payload.mimeType, body: msg.payload.body });
+  }
+  const out: { bytes: Uint8Array; mimeType: string }[] = [];
+  for (const att of atts) {
+    if (!att.body?.attachmentId) continue;
+    const attRes = await fetch(`${GATEWAY_URL}/users/me/messages/${emailId}/attachments/${att.body.attachmentId}`, { headers: gmailHeaders() });
+    if (!attRes.ok) continue;
+    const j = (await attRes.json()) as { data?: string };
+    if (!j.data) continue;
+    const b64 = base64UrlToBase64(j.data);
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    out.push({ bytes, mimeType: att.mimeType ?? "application/octet-stream" });
+  }
+  return out;
+}
+
 function normalizePersonValue(value: string | null | undefined): string {
   return (value ?? "")
     .normalize("NFD")
