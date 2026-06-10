@@ -60,10 +60,13 @@ export function StatCard({
         active && TONE_ACTIVE[t],
       )}
     >
+      {active && (
+        <div className={cn("absolute top-3 right-3 size-2.5 rounded-full animate-pulse shadow-[0_0_8px_2px_currentColor]", TONE_TEXT[t])} />
+      )}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="text-xs uppercase tracking-wider text-muted-foreground">{label}</div>
-          <div className="mt-2 text-3xl font-semibold tabular-nums tracking-tight">{value}</div>
+          <div className={cn("mt-2 text-3xl font-semibold tabular-nums tracking-tight", active && "text-white")}>{value}</div>
           {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
         </div>
         <div className={cn("size-10 rounded-xl grid place-items-center shrink-0", active ? TONE_ICON_ACTIVE[t] : TONE_ICON[t])}>
