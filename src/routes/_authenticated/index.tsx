@@ -283,7 +283,7 @@ function FarmaciaDashboard() {
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard-stats"],
     queryFn: async () => {
-      const [prenotazioni, ricette, dpc, debiti, ultimeRicette, prenIds, debIds] = await Promise.all([
+      const [prenotazioni, ricette, dpc, debiti, ultimeRicette, prenIds, debIds, dpcIds] = await Promise.all([
         supabase.from("prenotazioni").select("id", { count: "exact", head: true }).in("stato", ["in_attesa", "pronto"]),
         supabase.from("ricette").select("id", { count: "exact", head: true }).eq("stato", "nuova"),
         supabase.from("ricette").select("id", { count: "exact", head: true }).eq("is_dpc_alert", true).eq("stato", "nuova"),
@@ -291,6 +291,7 @@ function FarmaciaDashboard() {
         supabase.from("ricette").select("id, assistito_id, nome, cognome, codice_fiscale, data_ricetta, medico, dpc, is_dpc_alert, stato, created_at").order("data_ricetta", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false }).limit(200),
         supabase.from("prenotazioni").select("assistito_id").in("stato", ["in_attesa", "pronto"]),
         supabase.from("debiti").select("assistito_id").eq("stato", "aperto"),
+        supabase.from("ricette").select("assistito_id, codice_fiscale").or("is_dpc_alert.eq.true,dpc.eq.true"),
       ]);
       const totaleDebiti = (debiti.data ?? []).reduce((s, r: { importo: number | string }) => s + Number(r.importo ?? 0), 0);
       const all = ultimeRicette.data ?? [];
@@ -317,6 +318,11 @@ function FarmaciaDashboard() {
       });
       const prenSet = new Set((prenIds.data ?? []).map((r: { assistito_id: string | null }) => r.assistito_id).filter(Boolean) as string[]);
       const debSet = new Set((debIds.data ?? []).map((r: { assistito_id: string | null }) => r.assistito_id).filter(Boolean) as string[]);
+      const dpcSet = new Set<string>();
+      for (const r of (dpcIds.data ?? []) as { assistito_id: string | null; codice_fiscale: string | null }[]) {
+        const id = r.assistito_id ?? (r.codice_fiscale ? assistitoIdByCf.get(r.codice_fiscale) ?? null : null);
+        if (id) dpcSet.add(id);
+      }
       return {
         prenotazioni: prenotazioni.count ?? 0,
         ricette: ricette.count ?? 0,
@@ -325,6 +331,7 @@ function FarmaciaDashboard() {
         all: withStatus,
         prenSet,
         debSet,
+        dpcSet,
       };
     },
   });
@@ -348,7 +355,10 @@ function FarmaciaDashboard() {
       const expired = deduped.filter((r) => r._kind === "expired").sort((a, b) => (b._days ?? 0) - (a._days ?? 0));
       const expiring = deduped.filter((r) => r._kind === "expiring").sort((a, b) => (b._days ?? 0) - (a._days ?? 0));
       const shown = new Set([...expired, ...expiring].map((r) => r._assistito_id ?? r.assistito_id ?? r.id));
-      const dpc = deduped.filter((r) => !shown.has(r._assistito_id ?? r.assistito_id ?? r.id) && r.is_dpc_alert);
+      const dpc = deduped.filter((r) => {
+        const aid = r._assistito_id ?? r.assistito_id ?? r.id;
+        return !shown.has(aid) && (r.is_dpc_alert || r.dpc || (r._assistito_id && data.dpcSet.has(r._assistito_id)));
+      });
       const shown2 = new Set([...expired, ...expiring, ...dpc].map((r) => r._assistito_id ?? r.assistito_id ?? r.id));
       const normal = deduped.filter((r) => !shown2.has(r._assistito_id ?? r.assistito_id ?? r.id)).slice(0, 8);
       return [
@@ -360,7 +370,7 @@ function FarmaciaDashboard() {
     }
     let matched = all;
     if (filter === "ricette") matched = all.filter((r) => r.stato === "nuova");
-    else if (filter === "dpc") matched = all.filter((r) => r.is_dpc_alert);
+    else if (filter === "dpc") matched = all.filter((r) => r.is_dpc_alert || r.dpc || (r._assistito_id && data.dpcSet.has(r._assistito_id)));
     else if (filter === "prenotazioni") matched = all.filter((r) => r._assistito_id && data.prenSet.has(r._assistito_id));
     else if (filter === "debiti") matched = all.filter((r) => r._assistito_id && data.debSet.has(r._assistito_id));
     // dedupe per assistito (keep most recent — list è già ordinata per data_ricetta desc)
@@ -435,6 +445,7 @@ function FarmaciaDashboard() {
             const days = (r as { _days?: number | null })._days ?? null;
             const assistitoId = (r as { _assistito_id?: string | null })._assistito_id ?? r.assistito_id;
             const section = (r as { _section?: "expired" | "expiring" | "dpc" | "normal" })._section;
+            const hasDpc = r.is_dpc_alert || r.dpc || (assistitoId ? data?.dpcSet.has(assistitoId) ?? false : false);
             const prevSection = i > 0 ? (rows[i - 1] as { _section?: "expired" | "expiring" | "dpc" | "normal" })._section : undefined;
             const isNewDpcSection = section === "dpc" && prevSection !== "dpc";
             const rowCls =
@@ -458,8 +469,7 @@ function FarmaciaDashboard() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium truncate">{r.cognome ?? ""} {r.nome ?? ""}</span>
                   {r.codice_fiscale && <span className="text-xs text-muted-foreground font-mono">{r.codice_fiscale}</span>}
-                  {r.is_dpc_alert && <Badge className="bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-[0_0_8px_rgba(244,63,94,0.25)]">DPC</Badge>}
-                  {r.dpc && !r.is_dpc_alert && <Badge variant="outline" className="border-rose-500/30 text-rose-300/80">DPC</Badge>}
+                  {hasDpc && <Badge className="bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-[0_0_8px_rgba(244,63,94,0.25)]">DPC</Badge>}
                   {kind === "expiring" && days !== null && (
                     <Badge className="bg-amber-500/20 text-amber-300 border border-amber-500/40 gap-1">
                       <Clock className="size-3" /> Scade tra {Math.max(0, 30 - days)}g
