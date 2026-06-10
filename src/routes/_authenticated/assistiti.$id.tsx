@@ -18,8 +18,13 @@ import { it } from "date-fns/locale";
 
 export const Route = createFileRoute("/_authenticated/assistiti/$id")({
   head: () => ({ meta: [{ title: "Assistito · Farmacia" }] }),
-  component: AssistitoDetail,
+  component: AssistitoDetailRoute,
 });
+
+function AssistitoDetailRoute() {
+  const { id } = Route.useParams();
+  return <AssistitoDetail id={id} />;
+}
 
 function AssistitoDetail() {
   const { id } = Route.useParams();
