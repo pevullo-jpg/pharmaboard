@@ -10,6 +10,19 @@ const errorMiddleware = createMiddleware().server(async ({ next }) => {
     if (error != null && typeof error === "object" && "statusCode" in error) {
       throw error;
     }
+    // Let TanStack format serverFn errors (so the client sees the real
+    // message — e.g. "Unauthorized" — instead of an HTML error page that
+    // breaks the RPC response parser and triggers the root error boundary).
+    const url = (() => {
+      try {
+        return getRequest().url ?? "";
+      } catch {
+        return "";
+      }
+    })();
+    if (url.includes("/_serverFn/")) {
+      throw error;
+    }
     console.error(error);
     return new Response(renderErrorPage(), {
       status: 500,
