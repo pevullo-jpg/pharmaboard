@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
@@ -25,6 +25,7 @@ import { toast } from "sonner";
 import { DebitiBadge } from "@/components/pharmacy/debiti-badge";
 import { AnticipiBadge } from "@/components/pharmacy/anticipi-badge";
 import { PrenotazioniBadge } from "@/components/pharmacy/prenotazioni-badge";
+import { AssistitoDetail } from "@/routes/_authenticated/assistiti.$id";
 
 export const Route = createFileRoute("/_authenticated/assistiti")({
   head: () => ({ meta: [{ title: "Assistiti · Farmacia" }] }),
@@ -35,6 +36,7 @@ function AssistitiPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
+  const [detailId, setDetailId] = useState<string | null>(null);
   const mergePdfs = useServerFn(getAssistitoMergedPdf);
   const [mergingId, setMergingId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -149,7 +151,7 @@ function AssistitiPage() {
           {(data ?? []).map((a) => {
             const anticipiAperti = (a.anticipi ?? []).filter((p: { stato: string }) => p.stato === "aperto").length;
             return (
-              <Link key={a.id} to="/assistiti/$id" params={{ id: a.id }} className="flex items-center justify-between gap-4 px-5 py-4 hover:bg-sidebar-accent/30 transition-colors flex-wrap">
+              <div key={a.id} onClick={() => setDetailId(a.id)} className="flex items-center justify-between gap-4 px-5 py-4 hover:bg-sidebar-accent/30 transition-colors flex-wrap cursor-pointer">
                 <div className="min-w-0 flex-1">
                   <div className="font-medium">
                     {a.cognome} {a.nome}
@@ -186,7 +188,7 @@ function AssistitiPage() {
                   </Button>
                   <ChevronRight className="size-4 text-muted-foreground" />
                 </div>
-              </Link>
+              </div>
             );
           })}
         </div>
@@ -212,6 +214,12 @@ function AssistitiPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={!!detailId} onOpenChange={(open) => { if (!open) setDetailId(null); }}>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+          {detailId && <AssistitoDetail key={detailId} id={detailId} onClose={() => setDetailId(null)} />}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

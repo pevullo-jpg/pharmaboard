@@ -18,11 +18,15 @@ import { it } from "date-fns/locale";
 
 export const Route = createFileRoute("/_authenticated/assistiti/$id")({
   head: () => ({ meta: [{ title: "Assistito · Farmacia" }] }),
-  component: AssistitoDetail,
+  component: AssistitoDetailRoute,
 });
 
-function AssistitoDetail() {
+function AssistitoDetailRoute() {
   const { id } = Route.useParams();
+  return <AssistitoDetail id={id} />;
+}
+
+export function AssistitoDetail({ id, onClose }: { id: string; onClose?: () => void }) {
   const qc = useQueryClient();
   const openAtt = useServerFn(getRicettaAttachment);
   const delEmail = useServerFn(deleteRicettaEmail);
@@ -132,9 +136,15 @@ function AssistitoDetail() {
 
   return (
     <div className="space-y-6">
-      <Link to="/assistiti" className="text-sm text-muted-foreground inline-flex items-center gap-1 hover:text-foreground">
-        <ArrowLeft className="size-4" /> Tutti gli assistiti
-      </Link>
+      {onClose ? (
+        <Button variant="ghost" className="text-sm text-muted-foreground inline-flex items-center gap-1 hover:text-foreground px-0" onClick={onClose}>
+          <ArrowLeft className="size-4" /> Chiudi
+        </Button>
+      ) : (
+        <Link to="/assistiti" className="text-sm text-muted-foreground inline-flex items-center gap-1 hover:text-foreground">
+          <ArrowLeft className="size-4" /> Tutti gli assistiti
+        </Link>
+      )}
       <Card className="glass-card p-6">
         {!editing ? (
           <div className="flex flex-wrap items-start justify-between gap-4">
