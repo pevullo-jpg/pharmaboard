@@ -192,6 +192,9 @@ function extractNREs(text: string): { full: string; reg: string }[] {
   let compact = text.toUpperCase().replace(/[^A-Z0-9]/g, " ").replace(/\s+/g, " ");
   // Stacca il check-char Code39 in coda al NRE (es. "4963790679Y" → "4963790679 Y").
   compact = compact.replace(/(\d{10})([A-Z])(?![A-Z0-9])/g, "$1 $2");
+  // Stacca anche il check-char NUMERICO in coda al NRE da barcode
+  // (es. "49652912111" = NRE 4965291211 + check digit "1").
+  compact = compact.replace(/(?<![0-9])(\d{10})(\d)(?![A-Z0-9])/g, "$1 $2");
   // Stacca il check-char in coda al codice regionale "1900AC" → "1900A C".
   compact = compact.replace(/(?<![A-Z0-9])(\d{4}[A-Z])([A-Z])(?![A-Z0-9])/g, "$1 $2");
   const out: { full: string; reg: string }[] = [];

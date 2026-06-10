@@ -215,7 +215,7 @@ export const getRicettaAttachment = createServerFn({ method: "POST" })
     const msg = (await msgRes.json()) as GmailMessage;
 
     const atts = collectAttachmentParts(msg.payload?.parts);
-    if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType === "application/pdf" || msg.payload.mimeType.startsWith("image/"))) {
+    if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType.toLowerCase().includes("pdf") || msg.payload.mimeType.startsWith("image/") || msg.payload.mimeType === "application/octet-stream")) {
       atts.push({ mimeType: msg.payload.mimeType, body: msg.payload.body, filename: "ricetta" });
     }
     const att = atts[0];
@@ -271,7 +271,7 @@ async function fetchFirstAttachmentBytes(emailId: string): Promise<{ bytes: Uint
   if (!msgRes.ok) return null;
   const msg = (await msgRes.json()) as GmailMessage;
   const atts = collectAttachmentParts(msg.payload?.parts);
-  if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType === "application/pdf" || msg.payload.mimeType.startsWith("image/"))) {
+  if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType.toLowerCase().includes("pdf") || msg.payload.mimeType.startsWith("image/") || msg.payload.mimeType === "application/octet-stream")) {
     atts.push({ mimeType: msg.payload.mimeType, body: msg.payload.body });
   }
   const att = atts[0];
@@ -292,7 +292,7 @@ async function fetchAllAttachmentsBytes(emailId: string): Promise<{ bytes: Uint8
   if (!msgRes.ok) return [];
   const msg = (await msgRes.json()) as GmailMessage;
   const atts = collectAttachmentParts(msg.payload?.parts);
-  if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType === "application/pdf" || msg.payload.mimeType.startsWith("image/"))) {
+  if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType.toLowerCase().includes("pdf") || msg.payload.mimeType.startsWith("image/") || msg.payload.mimeType === "application/octet-stream")) {
     atts.push({ mimeType: msg.payload.mimeType, body: msg.payload.body });
   }
   const out: { bytes: Uint8Array; mimeType: string }[] = [];
@@ -378,7 +378,7 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
         // Ultimo tentativo: ri-scarica l'allegato e prova il parser deterministico.
         try {
           const att = await fetchFirstAttachmentBytes(r.source_email_id);
-          if (att && att.mimeType === "application/pdf") {
+          if (att && (looksLikePdf(att.bytes) || att.mimeType.toLowerCase().includes("pdf"))) {
             const { parsePdfRicetta } = await import("./ricette-parser.server");
             const det = await parsePdfRicetta(att.bytes);
             const detCf = normalizePersonValue(det?.codice_fiscale);
@@ -556,7 +556,11 @@ function collectAttachmentParts(parts: GmailPart[] | undefined, acc: GmailPart[]
   for (const p of parts) {
     const mt = p.mimeType ?? "";
     const fn = (p.filename ?? "").toLowerCase();
-    const isPdf = mt === "application/pdf" || (fn.endsWith(".pdf") && mt !== "application/pkcs7-signature");
+    // Il mimeType dichiarato è inaffidabile (octet-stream, "pdf", ecc.):
+    // accettiamo qualsiasi allegato binario con nome file — sarà il
+    // controllo dei magic bytes a valle a decidere se è un PDF vero.
+    const isSignature = mt === "application/pkcs7-signature" || fn.endsWith(".p7s");
+    const isPdf = !isSignature && (mt.toLowerCase().includes("pdf") || fn.endsWith(".pdf") || (!!fn && mt === "application/octet-stream"));
     const isImg = mt.startsWith("image/");
     if (p.body?.attachmentId && (isPdf || isImg)) {
       acc.push(p);
@@ -731,14 +735,23 @@ Rispondi SOLO con il JSON.`;
  * Se l'estrazione fallisce, ritorniamo null (nessun fallback AI).
  */
 async function extractDocumentFromAttachment(base64: string, mimeType: string): Promise<ExtractedDoc | null> {
-  if (mimeType !== "application/pdf") {
-    console.log("Allegato non PDF, saltato (AI disabilitata):", mimeType);
+  let bytes: Uint8Array;
+  try {
+    const bin = atob(base64);
+    bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  } catch (e) {
+    console.warn("Allegato: base64 non decodificabile", e instanceof Error ? e.message : e);
+    return null;
+  }
+  // NON fidarsi del mimeType dichiarato (spesso arriva come
+  // application/octet-stream o "pdf"): controlliamo i magic bytes %PDF
+  // nei primi 1024 byte. Ogni PDF reale passa SEMPRE dal parser deterministico.
+  if (!looksLikePdf(bytes) && !mimeType.toLowerCase().includes("pdf")) {
+    console.log("Allegato non PDF (magic bytes assenti), saltato:", mimeType);
     return null;
   }
   try {
-    const bin = atob(base64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     const { parsePdfRicetta } = await import("./ricette-parser.server");
     const det = await parsePdfRicetta(bytes);
     if (det) {
@@ -751,6 +764,17 @@ async function extractDocumentFromAttachment(base64: string, mimeType: string): 
     console.warn("Parser deterministico fallito:", e instanceof Error ? e.message : e);
     return null;
   }
+}
+
+/** Riconosce un PDF dai magic bytes `%PDF` entro i primi 1024 byte. */
+function looksLikePdf(bytes: Uint8Array): boolean {
+  const limit = Math.min(bytes.length, 1024) - 3;
+  for (let i = 0; i < limit; i++) {
+    if (bytes[i] === 0x25 && bytes[i + 1] === 0x50 && bytes[i + 2] === 0x44 && bytes[i + 3] === 0x46) {
+      return true;
+    }
+  }
+  return false;
 }
 
 async function callDocExtraction(apiKey: string, prompt: string, base64: string, mimeType: string, model: string): Promise<ExtractedDoc | null> {
@@ -1179,7 +1203,7 @@ export async function runHubSync(): Promise<{
     const farmaciaId = target.id;
 
     const attachments = collectAttachmentParts(msg.payload?.parts);
-    if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType === "application/pdf" || msg.payload.mimeType.startsWith("image/"))) {
+    if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType.toLowerCase().includes("pdf") || msg.payload.mimeType.startsWith("image/") || msg.payload.mimeType === "application/octet-stream")) {
       attachments.push({ mimeType: msg.payload.mimeType, body: msg.payload.body, filename: subject });
     }
 
@@ -1348,7 +1372,7 @@ export async function runHubSync(): Promise<{
     try {
       const modRes = await fetch(`${GATEWAY_URL}/users/me/messages/${m.id}/modify`, {
         method: "POST",
-        headers: { ...gmailHeaders(), "Content-Type": "application/json" },
+        headers: gmailHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ removeLabelIds: ["UNREAD"] }),
       });
       if (!modRes.ok) {
