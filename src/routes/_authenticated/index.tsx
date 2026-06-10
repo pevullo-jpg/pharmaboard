@@ -430,18 +430,30 @@ function FarmaciaDashboard() {
               {filter === "all" ? "Nessuna ricetta ancora. Collega Gmail in Impostazioni o aggiungi manualmente." : "Nessun assistito corrisponde al filtro selezionato."}
             </div>
           )}
-          {rows.map((r) => {
+          {rows.map((r, i) => {
             const kind = (r as { _kind?: "expired" | "expiring" | "normal" })._kind ?? "normal";
             const days = (r as { _days?: number | null })._days ?? null;
             const assistitoId = (r as { _assistito_id?: string | null })._assistito_id ?? r.assistito_id;
+            const section = (r as { _section?: "expired" | "expiring" | "dpc" | "normal" })._section;
+            const prevSection = i > 0 ? (rows[i - 1] as { _section?: "expired" | "expiring" | "dpc" | "normal" })._section : undefined;
+            const isNewDpcSection = section === "dpc" && prevSection !== "dpc";
             const rowCls =
               kind === "expired"
                 ? "bg-red-500/10 hover:bg-red-500/15"
                 : kind === "expiring"
                   ? "bg-amber-500/10 hover:bg-amber-500/15"
-                  : "hover:bg-sidebar-accent/30";
+                  : section === "dpc"
+                    ? "bg-accent/5 hover:bg-accent/10"
+                    : "hover:bg-sidebar-accent/30";
             return (
-            <div key={r.id} className={`px-5 py-3 flex items-center justify-between gap-4 transition-colors flex-wrap ${rowCls}`}>
+            <>
+              {isNewDpcSection && (
+                <div className="px-5 py-2 bg-accent/10 border-y border-accent/20 flex items-center gap-2">
+                  <AlertTriangle className="size-4 text-accent" />
+                  <span className="text-sm font-medium text-accent">Assistiti con DPC</span>
+                </div>
+              )}
+              <div key={r.id} className={`px-5 py-3 flex items-center justify-between gap-4 transition-colors flex-wrap ${rowCls}`}>
               <div className="min-w-0 flex-1 basis-64">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium truncate">{r.cognome ?? ""} {r.nome ?? ""}</span>
