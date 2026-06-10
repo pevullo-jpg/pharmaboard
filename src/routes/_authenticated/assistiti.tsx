@@ -151,7 +151,7 @@ function AssistitiPage() {
           {(data ?? []).map((a) => {
             const anticipiAperti = (a.anticipi ?? []).filter((p: { stato: string }) => p.stato === "aperto").length;
             return (
-              <Link key={a.id} to="/assistiti/$id" params={{ id: a.id }} className="flex items-center justify-between gap-4 px-5 py-4 hover:bg-sidebar-accent/30 transition-colors flex-wrap">
+              <div key={a.id} onClick={() => setDetailId(a.id)} className="flex items-center justify-between gap-4 px-5 py-4 hover:bg-sidebar-accent/30 transition-colors flex-wrap cursor-pointer">
                 <div className="min-w-0 flex-1">
                   <div className="font-medium">
                     {a.cognome} {a.nome}
