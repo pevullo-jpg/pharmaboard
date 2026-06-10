@@ -353,7 +353,7 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
     // Linked ricette
     const { data: linked, error: lErr } = await supabase
       .from("ricette")
-      .select("id, source_email_id, data_ricetta, created_at, tipo_documento")
+      .select("id, source_email_id, data_ricetta, created_at, tipo_documento, numero_ricetta")
       .eq("assistito_id", data.assistitoId)
       .not("source_email_id", "is", null);
     if (lErr) throw new Error(lErr.message);
@@ -362,12 +362,12 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
     // Se manca il CF (estrazione AI fallita), lo riestraiamo dal PDF.
     const { data: orphanCandidates, error: oErr } = await supabase
       .from("ricette")
-      .select("id, source_email_id, data_ricetta, created_at, codice_fiscale, raw_text")
+      .select("id, source_email_id, data_ricetta, created_at, codice_fiscale, raw_text, numero_ricetta")
       .is("assistito_id", null)
       .not("source_email_id", "is", null);
     if (oErr) throw new Error(oErr.message);
 
-    const matchedOrphans: { id: string; source_email_id: string | null; data_ricetta: string | null; created_at: string | null; resolvedCf: string }[] = [];
+    const matchedOrphans: { id: string; source_email_id: string | null; data_ricetta: string | null; created_at: string | null; numero_ricetta: string | null; resolvedCf: string }[] = [];
     for (const r of orphanCandidates ?? []) {
       let cf = normalizePersonValue(r.codice_fiscale);
       if (cf.length !== 16) {
@@ -392,7 +392,7 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
         }
       }
       if (cf === assCf) {
-        matchedOrphans.push({ id: r.id, source_email_id: r.source_email_id, data_ricetta: r.data_ricetta, created_at: r.created_at, resolvedCf: cf });
+        matchedOrphans.push({ id: r.id, source_email_id: r.source_email_id, data_ricetta: r.data_ricetta, created_at: r.created_at, numero_ricetta: r.numero_ricetta, resolvedCf: cf });
       }
     }
 
@@ -403,38 +403,62 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
         .in("id", matchedOrphans.map((r) => r.id));
     }
 
-    const orphans = matchedOrphans.map((r) => ({ id: r.id, source_email_id: r.source_email_id, data_ricetta: r.data_ricetta, created_at: r.created_at }));
+    const orphans = matchedOrphans.map((r) => ({ id: r.id, source_email_id: r.source_email_id, data_ricetta: r.data_ricetta, created_at: r.created_at, numero_ricetta: r.numero_ricetta, tipo_documento: null as string | null }));
 
-    // Solo ricette vere: scartiamo "sintesi" e "altro" (gli orfani senza tipo
-    // assumiamo siano ricette in attesa di riclassificazione).
-    const linkedRicette = (linked ?? []).filter((r) => (r.tipo_documento ?? "ricetta") === "ricetta");
-    const ricette = [...linkedRicette, ...orphans].sort((a, b) => {
+    // Righe "ricetta" (gli orfani senza tipo li trattiamo come ricette) e righe "sintesi".
+    const allLinked = (linked ?? []) as { id: string; source_email_id: string | null; data_ricetta: string | null; created_at: string | null; tipo_documento: string | null; numero_ricetta: string | null }[];
+    const ricettaRows = [...allLinked.filter((r) => (r.tipo_documento ?? "ricetta") === "ricetta"), ...orphans].sort((a, b) => {
       const da = a.data_ricetta ?? a.created_at ?? "";
       const db = b.data_ricetta ?? b.created_at ?? "";
       return da.localeCompare(db);
     });
-    if (!ricette || ricette.length === 0) {
+    const sintesiRows = allLinked.filter((r) => r.tipo_documento === "sintesi");
+
+    // NRE distinti delle ricette vere e delle sintesi.
+    const wantedNres = new Set<string>();
+    for (const r of ricettaRows) { const n = normalizeNRE(r.numero_ricetta); if (n) wantedNres.add(n); }
+    const sintesiNres = new Set<string>();
+    for (const r of sintesiRows) { const n = normalizeNRE(r.numero_ricetta); if (n) sintesiNres.add(n); }
+    // La sintesi va inclusa SOLO se contiene NRE diversi da quelli delle ricette.
+    const includeSintesi = [...sintesiNres].some((n) => !wantedNres.has(n));
+
+    if (ricettaRows.length === 0 && !includeSintesi) {
       return { empty: true as const, dataUrl: "", mergedCount: 0, skipped: 0, errors: [] };
     }
 
-    const { PDFDocument } = await import("pdf-lib");
-    const merged = await PDFDocument.create();
-    let added = 0;
-    const errors: string[] = [];
-
-    // Più ricette possono condividere la stessa source_email_id (email con N
-    // allegati = N righe ricetta). Scarichiamo TUTTI gli allegati una volta
-    // sola per email, così evitiamo di duplicare lo stesso PDF e includiamo
-    // ogni ricetta reale presente nell'email.
-    const seenEmails = new Set<string>();
+    // Email da scaricare: una per NRE distinto (più quelle delle sintesi se servono).
     const orderedEmails: string[] = [];
-    for (const r of ricette) {
+    const seenEmails = new Set<string>();
+    const seenRowNres = new Set<string>();
+    for (const r of ricettaRows) {
       if (!r.source_email_id) continue;
-      if (seenEmails.has(r.source_email_id)) continue;
-      seenEmails.add(r.source_email_id);
-      orderedEmails.push(r.source_email_id);
+      const n = normalizeNRE(r.numero_ricetta);
+      if (n) { if (seenRowNres.has(n)) continue; seenRowNres.add(n); }
+      if (!seenEmails.has(r.source_email_id)) { seenEmails.add(r.source_email_id); orderedEmails.push(r.source_email_id); }
+    }
+    if (includeSintesi) {
+      for (const r of sintesiRows) {
+        if (r.source_email_id && !seenEmails.has(r.source_email_id)) { seenEmails.add(r.source_email_id); orderedEmails.push(r.source_email_id); }
+      }
     }
 
+    const { PDFDocument } = await import("pdf-lib");
+    const { parsePdfRicetta } = await import("./ricette-parser.server");
+    const merged = await PDFDocument.create();
+    let added = 0;
+    let sintesiAdded = false;
+    const addedNres = new Set<string>();
+    const errors: string[] = [];
+
+    const addPdfPages = async (bytes: Uint8Array) => {
+      const src = await PDFDocument.load(bytes, { ignoreEncryption: true });
+      const pages = await merged.copyPages(src, src.getPageIndices());
+      pages.forEach((p) => merged.addPage(p));
+    };
+
+    // Un'email può contenere allegati di PIÙ assistiti diversi: classifichiamo
+    // OGNI allegato e includiamo solo quelli di questo assistito, una sola
+    // volta per NRE. La sintesi entra al massimo una volta.
     for (const emailId of orderedEmails) {
       try {
         const atts = await fetchAllAttachmentsBytes(emailId);
@@ -442,20 +466,46 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
         for (const att of atts) {
           try {
             if (att.mimeType === "application/pdf") {
-              const src = await PDFDocument.load(att.bytes, { ignoreEncryption: true });
-              const pages = await merged.copyPages(src, src.getPageIndices());
-              pages.forEach((p) => merged.addPage(p));
-              added++;
-            } else if (att.mimeType === "image/jpeg" || att.mimeType === "image/jpg") {
-              const img = await merged.embedJpg(att.bytes);
-              const page = merged.addPage([img.width, img.height]);
-              page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
-              added++;
-            } else if (att.mimeType === "image/png") {
-              const img = await merged.embedPng(att.bytes);
-              const page = merged.addPage([img.width, img.height]);
-              page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
-              added++;
+              let doc: Awaited<ReturnType<typeof parsePdfRicetta>> = null;
+              try { doc = await parsePdfRicetta(att.bytes); } catch { doc = null; }
+              if (doc) {
+                const attNres = (doc.prescrizioni ?? [])
+                  .map((p) => canonicalNre(p.numero_ricetta, p.codice_regionale))
+                  .filter((n): n is string => !!n);
+                if (doc.tipo_documento === "sintesi") {
+                  const belongs = attNres.some((n) => sintesiNres.has(n) || wantedNres.has(n));
+                  if (includeSintesi && !sintesiAdded && belongs) {
+                    await addPdfPages(att.bytes);
+                    sintesiAdded = true;
+                    added++;
+                  }
+                  continue;
+                }
+                if (doc.tipo_documento === "ricetta") {
+                  const fresh = attNres.filter((n) => wantedNres.has(n) && !addedNres.has(n));
+                  if (fresh.length > 0) {
+                    await addPdfPages(att.bytes);
+                    fresh.forEach((n) => addedNres.add(n));
+                    added++;
+                  }
+                  continue;
+                }
+                // "altro": scarta sempre.
+                continue;
+              }
+              // Non classificabile (scansione senza testo): includi solo se è
+              // l'unico allegato dell'email (mappatura non ambigua).
+              if (atts.length === 1) { await addPdfPages(att.bytes); added++; }
+              else errors.push(`Email ${emailId}: allegato PDF non classificabile saltato`);
+            } else if (att.mimeType === "image/jpeg" || att.mimeType === "image/jpg" || att.mimeType === "image/png") {
+              if (atts.length === 1) {
+                const img = att.mimeType === "image/png" ? await merged.embedPng(att.bytes) : await merged.embedJpg(att.bytes);
+                const page = merged.addPage([img.width, img.height]);
+                page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
+                added++;
+              } else {
+                errors.push(`Email ${emailId}: immagine non classificabile saltata`);
+              }
             } else {
               errors.push(`Email ${emailId}: tipo non supportato (${att.mimeType})`);
             }
@@ -477,7 +527,7 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
     return {
       dataUrl: `data:application/pdf;base64,${base64}`,
       mergedCount: added,
-      skipped: ricette.length - added,
+      skipped: Math.max(0, wantedNres.size - addedNres.size),
       errors,
     };
   });
@@ -1197,13 +1247,34 @@ export async function runHubSync(): Promise<{
         // Dedup per NRE: una ricetta con stesso NRE non va reimportata.
         const { data: existsNre } = await supabaseAdmin
           .from("ricette")
-          .select("id")
+          .select("id, tipo_documento")
           .eq("farmacia_id", farmaciaId)
           .eq("numero_ricetta", nreCanon)
           .limit(1);
         if (existsNre && existsNre.length > 0) {
-          // Sintesi: salta sempre. Ricetta full: salta comunque (è la stessa ricetta).
-          skipped++;
+          const existing = existsNre[0];
+          // Se esiste solo la riga "sintesi" e ora arriva la ricetta piena,
+          // promuoviamo la riga esistente a ricetta (la sintesi non deve
+          // mai oscurare la ricetta vera con lo stesso NRE).
+          if (tipo === "ricetta" && existing.tipo_documento === "sintesi") {
+            await supabaseAdmin.from("ricette").update({
+              assistito_id: assistitoId,
+              nome: extracted.nome ?? null,
+              cognome: extracted.cognome ?? null,
+              codice_fiscale: cfValid,
+              medico: extracted.medico ?? null,
+              esenzione: extracted.esenzione ?? null,
+              data_ricetta: extracted.data_ricetta ?? null,
+              codice_regionale: p.codice_regionale ?? null,
+              tipo_documento: "ricetta",
+              dpc: isDpc,
+              is_dpc_alert: isDpc,
+              source_email_id: m.id,
+            }).eq("id", existing.id);
+            importedRicette++;
+          } else {
+            skipped++;
+          }
           continue;
         }
 

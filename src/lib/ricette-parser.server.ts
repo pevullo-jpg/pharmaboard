@@ -61,7 +61,11 @@ export function classifyAndExtract(rawText: string): ExtractedDoc | null {
   }
 
   // --- SINTESI (Elenco NRE) ---
-  if (hasElencoNre && !hasRicettaLabels) {
+  // Una sintesi contiene solo NRE + date + un CF (anche parziale): NESSUN
+  // medico né esenzione. Se mancano le label del medico e ci sono NRE,
+  // il documento è una sintesi, non una ricetta.
+  const hasMedicoLabel = LABELS.CF_MEDICO.test(text) || LABELS.MEDICO_NOME.test(text);
+  if ((hasElencoNre || (!hasMedicoLabel && !hasPromemoriaHeader)) && !hasRicettaLabels && nres.length > 0) {
     const cf = pickUniqueAssistitoCF(text, null);
     if (!cf || nres.length === 0) return null;
     return {
