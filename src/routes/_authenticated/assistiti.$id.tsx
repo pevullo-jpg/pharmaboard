@@ -71,7 +71,11 @@ function AssistitoDetail() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async (patch: Record<string, string | null>) => {
+    mutationFn: async (patch: {
+      nome: string; cognome: string; alias: string | null;
+      codice_fiscale: string | null; medico: string | null;
+      esenzione: string | null; telefono: string | null;
+    }) => {
       const { error } = await supabase.from("assistiti").update(patch).eq("id", id);
       if (error) {
         if (error.code === "23505") throw new Error("Codice fiscale già presente in questa farmacia");
