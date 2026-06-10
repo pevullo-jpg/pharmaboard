@@ -69,7 +69,7 @@ function AssistitiPage() {
         .order("cognome", { ascending: true });
       if (search.trim()) {
         const s = `%${search.trim()}%`;
-        q = q.or(`cognome.ilike.${s},nome.ilike.${s},codice_fiscale.ilike.${s}`);
+        q = q.or(`cognome.ilike.${s},nome.ilike.${s},alias.ilike.${s},codice_fiscale.ilike.${s}`);
       }
       const { data, error } = await q.limit(200);
       if (error) throw error;
@@ -151,7 +151,10 @@ function AssistitiPage() {
             return (
               <Link key={a.id} to="/assistiti/$id" params={{ id: a.id }} className="flex items-center justify-between gap-4 px-5 py-4 hover:bg-sidebar-accent/30 transition-colors flex-wrap">
                 <div className="min-w-0 flex-1">
-                  <div className="font-medium">{a.cognome} {a.nome}</div>
+                  <div className="font-medium">
+                    {a.cognome} {a.nome}
+                    {a.alias && <span className="ml-2 text-xs text-muted-foreground">«{a.alias}»</span>}
+                  </div>
                   <div className="text-xs text-muted-foreground mt-1 flex flex-wrap gap-3">
                     {a.codice_fiscale && <span className="font-mono">{a.codice_fiscale}</span>}
                     {a.medico && <span>Dr. {a.medico}</span>}
