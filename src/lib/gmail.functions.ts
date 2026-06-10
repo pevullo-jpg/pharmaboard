@@ -493,10 +493,12 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
                 // "altro": scarta sempre.
                 continue;
               }
-              // Non classificabile (scansione senza testo): includi solo se è
-              // l'unico allegato dell'email (mappatura non ambigua).
-              if (atts.length === 1) { await addPdfPages(att.bytes); added++; }
-              else errors.push(`Email ${emailId}: allegato PDF non classificabile saltato`);
+              // Non classificabile (scansione senza testo o parser fallito):
+              // includi comunque. I sintesi hanno sempre layer di testo e
+              // vengono classificati correttamente; quindi un PDF non
+              // classificabile è quasi sempre una ricetta scansionata.
+              await addPdfPages(att.bytes);
+              added++;
             } else if (att.mimeType === "image/jpeg" || att.mimeType === "image/jpg" || att.mimeType === "image/png") {
               if (atts.length === 1) {
                 const img = att.mimeType === "image/png" ? await merged.embedPng(att.bytes) : await merged.embedJpg(att.bytes);
