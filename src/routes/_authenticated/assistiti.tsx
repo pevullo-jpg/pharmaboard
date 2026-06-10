@@ -144,16 +144,7 @@ function AssistitiPage() {
                   </div>
                 </button>
                 <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={(e) => handleOpenRicette(e, a.id)}
-                    disabled={mergingId === a.id}
-                    className="gap-1"
-                  >
-                    {mergingId === a.id ? <Loader2 className="size-3.5 animate-spin" /> : <FileStack className="size-3.5" />}
-                    Ricette
-                  </Button>
+                  <RicetteBadge assistitoId={a.id} />
                   <DebitiBadge assistitoId={a.id} label={`${a.cognome} ${a.nome}`} />
                   <AnticipiBadge assistitoId={a.id} label={`${a.cognome} ${a.nome}`} />
                   <PrenotazioniBadge assistitoId={a.id} label={`${a.cognome} ${a.nome}`} />
