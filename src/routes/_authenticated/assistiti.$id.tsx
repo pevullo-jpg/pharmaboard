@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { ArrowLeft, Plus, FileText, CalendarClock, Wallet, Euro, Check, Trash2, ExternalLink, MailX, Loader2, FileStack } from "lucide-react";
+import { ArrowLeft, Plus, FileText, CalendarClock, Wallet, Euro, Check, Trash2, ExternalLink, MailX, Loader2, FileStack, Pencil, Save, X } from "lucide-react";
 import { toast } from "sonner";
 import { getRicettaAttachment, deleteRicettaEmail, getAssistitoMergedPdf } from "@/lib/gmail.functions";
 import { format } from "date-fns";
@@ -27,6 +27,8 @@ function AssistitoDetail() {
   const openAtt = useServerFn(getRicettaAttachment);
   const delEmail = useServerFn(deleteRicettaEmail);
   const mergePdfs = useServerFn(getAssistitoMergedPdf);
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState<Record<string, string>>({});
 
   const openMutation = useMutation({
     mutationFn: async (ricettaId: string) => openAtt({ data: { ricettaId } }),
@@ -68,6 +70,41 @@ function AssistitoDetail() {
     },
   });
 
+  const updateMutation = useMutation({
+    mutationFn: async (patch: {
+      nome: string; cognome: string; alias: string | null;
+      codice_fiscale: string | null; medico: string | null;
+      esenzione: string | null; telefono: string | null;
+    }) => {
+      const { error } = await supabase.from("assistiti").update(patch).eq("id", id);
+      if (error) {
+        if (error.code === "23505") throw new Error("Codice fiscale già presente in questa farmacia");
+        throw error;
+      }
+    },
+    onSuccess: () => {
+      toast.success("Salvato");
+      setEditing(false);
+      qc.invalidateQueries({ queryKey: ["assistito", id] });
+      qc.invalidateQueries({ queryKey: ["assistiti"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  const beginEdit = () => {
+    if (!assistito) return;
+    setForm({
+      nome: assistito.nome ?? "",
+      cognome: assistito.cognome ?? "",
+      alias: (assistito as { alias?: string | null }).alias ?? "",
+      codice_fiscale: assistito.codice_fiscale ?? "",
+      medico: assistito.medico ?? "",
+      esenzione: assistito.esenzione ?? "",
+      telefono: assistito.telefono ?? "",
+    });
+    setEditing(true);
+  };
+
   const { data: ricette } = useQuery({
     queryKey: ["ricette", id],
     queryFn: async () => (await supabase.from("ricette").select("*").eq("assistito_id", id).order("created_at", { ascending: false })).data ?? [],
@@ -89,6 +126,7 @@ function AssistitoDetail() {
 
   if (isLoading) return <div className="text-muted-foreground">Caricamento…</div>;
   if (!assistito) return <div>Assistito non trovato</div>;
+  const alias = (assistito as { alias?: string | null }).alias ?? null;
 
   const totaleDebiti = (debiti ?? []).filter((d) => d.stato === "aperto").reduce((s, d) => s + Number(d.importo), 0);
 
@@ -98,22 +136,71 @@ function AssistitoDetail() {
         <ArrowLeft className="size-4" /> Tutti gli assistiti
       </Link>
       <Card className="glass-card p-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{assistito.cognome} {assistito.nome}</h1>
-            <div className="text-sm text-muted-foreground mt-2 flex flex-wrap gap-x-6 gap-y-1">
-              {assistito.codice_fiscale && <span className="font-mono">{assistito.codice_fiscale}</span>}
-              {assistito.medico && <span>Dr. {assistito.medico}</span>}
-              {assistito.esenzione && <span>Esenzione {assistito.esenzione}</span>}
-              {assistito.telefono && <span>📞 {assistito.telefono}</span>}
+        {!editing ? (
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight">
+                {assistito.cognome} {assistito.nome}
+                {alias && <span className="ml-2 text-base font-normal text-muted-foreground">«{alias}»</span>}
+              </h1>
+              <div className="text-sm text-muted-foreground mt-2 flex flex-wrap gap-x-6 gap-y-1">
+                {assistito.codice_fiscale && <span className="font-mono">{assistito.codice_fiscale}</span>}
+                {assistito.medico && <span>Dr. {assistito.medico}</span>}
+                {assistito.esenzione && <span>Esenzione {assistito.esenzione}</span>}
+                {assistito.telefono && <span>📞 {assistito.telefono}</span>}
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {totaleDebiti > 0 && (
+                <Badge className="bg-destructive/20 text-destructive border border-destructive/40 text-base px-3 py-1.5">
+                  <Euro className="size-3.5 mr-1" /> {new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(totaleDebiti)}
+                </Badge>
+              )}
+              <Button size="sm" variant="outline" onClick={beginEdit} className="gap-1">
+                <Pencil className="size-4" /> Modifica
+              </Button>
             </div>
           </div>
-          {totaleDebiti > 0 && (
-            <Badge className="bg-destructive/20 text-destructive border border-destructive/40 text-base px-3 py-1.5">
-              <Euro className="size-3.5 mr-1" /> {new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(totaleDebiti)}
-            </Badge>
-          )}
-        </div>
+        ) : (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              updateMutation.mutate({
+                nome: form.nome.trim(),
+                cognome: form.cognome.trim(),
+                alias: form.alias.trim() || null,
+                codice_fiscale: form.codice_fiscale.trim().toUpperCase() || null,
+                medico: form.medico.trim() || null,
+                esenzione: form.esenzione.trim() || null,
+                telefono: form.telefono.trim() || null,
+              });
+            }}
+            className="space-y-3"
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1"><Label>Nome</Label><Input required value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })} /></div>
+              <div className="space-y-1"><Label>Cognome</Label><Input required value={form.cognome} onChange={(e) => setForm({ ...form, cognome: e.target.value })} /></div>
+              <div className="space-y-1 sm:col-span-2">
+                <Label>Alias</Label>
+                <Input
+                  value={form.alias}
+                  onChange={(e) => setForm({ ...form, alias: e.target.value })}
+                  placeholder="Nome personalizzato per la ricerca"
+                />
+              </div>
+              <div className="space-y-1 sm:col-span-2"><Label>Codice fiscale</Label><Input value={form.codice_fiscale} onChange={(e) => setForm({ ...form, codice_fiscale: e.target.value.toUpperCase() })} className="font-mono" /></div>
+              <div className="space-y-1"><Label>Medico</Label><Input value={form.medico} onChange={(e) => setForm({ ...form, medico: e.target.value })} /></div>
+              <div className="space-y-1"><Label>Esenzione</Label><Input value={form.esenzione} onChange={(e) => setForm({ ...form, esenzione: e.target.value })} /></div>
+              <div className="space-y-1 sm:col-span-2"><Label>Telefono</Label><Input value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })} /></div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="ghost" onClick={() => setEditing(false)} className="gap-1"><X className="size-4" /> Annulla</Button>
+              <Button type="submit" disabled={updateMutation.isPending} className="gap-1">
+                {updateMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />} Salva
+              </Button>
+            </div>
+          </form>
+        )}
       </Card>
 
       <Tabs defaultValue="ricette">

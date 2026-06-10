@@ -91,6 +91,7 @@ export type Database = {
       }
       assistiti: {
         Row: {
+          alias: string | null
           codice_fiscale: string | null
           cognome: string
           created_at: string
@@ -104,6 +105,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          alias?: string | null
           codice_fiscale?: string | null
           cognome: string
           created_at?: string
@@ -117,6 +119,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          alias?: string | null
           codice_fiscale?: string | null
           cognome?: string
           created_at?: string
