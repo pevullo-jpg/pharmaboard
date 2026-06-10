@@ -5,10 +5,17 @@ import type { LucideIcon } from "lucide-react";
 export type StatTone = "primary" | "accent" | "secondary" | "emerald";
 
 const TONE_ACTIVE: Record<StatTone, string> = {
-  primary: "neon-flash neon-primary border-primary/70 bg-primary/15 ring-1 ring-primary/50 shadow-[0_0_36px_-6px_var(--primary)]",
-  accent: "neon-flash neon-accent border-accent/70 bg-accent/15 ring-1 ring-accent/50 shadow-[0_0_36px_-6px_var(--accent)]",
-  secondary: "neon-flash neon-primary border-primary/60 bg-secondary/50 ring-1 ring-primary/40 shadow-[0_0_36px_-6px_var(--primary)]",
-  emerald: "neon-flash neon-emerald border-emerald-400/70 bg-emerald-500/15 ring-1 ring-emerald-400/50 shadow-[0_0_36px_-6px_rgb(16_185_129/0.85)]",
+  primary: "neon-flash neon-primary border-2 border-primary/80 bg-primary/20 ring-2 ring-primary/40 shadow-[0_0_40px_-4px_var(--primary)]",
+  accent: "neon-flash neon-accent border-2 border-accent/80 bg-accent/20 ring-2 ring-accent/40 shadow-[0_0_40px_-4px_var(--accent)]",
+  secondary: "neon-flash neon-primary border-2 border-primary/70 bg-secondary/60 ring-2 ring-primary/40 shadow-[0_0_40px_-4px_var(--primary)]",
+  emerald: "neon-flash neon-emerald border-2 border-emerald-400/80 bg-emerald-500/20 ring-2 ring-emerald-400/40 shadow-[0_0_40px_-4px_rgb(16_185_129/0.85)]",
+};
+
+const TONE_TEXT: Record<StatTone, string> = {
+  primary: "text-primary",
+  accent: "text-accent",
+  secondary: "text-primary",
+  emerald: "text-emerald-400",
 };
 
 const TONE_ICON: Record<StatTone, string> = {
