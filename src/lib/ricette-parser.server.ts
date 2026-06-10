@@ -20,11 +20,11 @@ export async function parsePdfRicetta(bytes: Uint8Array): Promise<ExtractedDoc |
     return null;
   }
 
-  if (!rawText || rawText.replace(/\s/g, "").length < 30) {
-    return null;
-  }
-
-  return classifyAndExtract(rawText);
+  // Tentiamo SEMPRE la classificazione, anche se il layer di testo è scarno
+  // (PDF "ibridi" / quasi-immagine): se è davvero vuoto, classifyAndExtract
+  // ritornerà null da solo. Non abbiamo più fallback AI, quindi non
+  // dobbiamo rinunciare a priori.
+  return classifyAndExtract(rawText ?? "");
 }
 
 // Esportata anche per test su testo già estratto.

@@ -375,14 +375,14 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
         cf = extractCfFromText(r.raw_text) ?? "";
       }
       if (cf.length !== 16 && r.source_email_id) {
-        // Ultimo tentativo: ri-scarica l'allegato e ri-estrai con AI.
+        // Ultimo tentativo: ri-scarica l'allegato e prova il parser deterministico.
         try {
           const att = await fetchFirstAttachmentBytes(r.source_email_id);
-          if (att) {
-            const b64 = uint8ToBase64(att.bytes);
-            const ext = await extractRicettaWithAI(b64, att.mimeType);
-            const aiCf = normalizePersonValue(ext?.codice_fiscale);
-            cf = aiCf.length === 16 ? aiCf : (extractCfFromText(JSON.stringify(ext)) ?? "");
+          if (att && att.mimeType === "application/pdf") {
+            const { parsePdfRicetta } = await import("./ricette-parser.server");
+            const det = await parsePdfRicetta(att.bytes);
+            const detCf = normalizePersonValue(det?.codice_fiscale);
+            cf = detCf.length === 16 ? detCf : "";
             if (cf.length === 16) {
               await supabase.from("ricette").update({ codice_fiscale: cf }).eq("id", r.id);
             }
@@ -725,28 +725,32 @@ Rispondi SOLO con il JSON.`;
 }
 
 /**
- * Estrae da un allegato cercando prima la via deterministica (parser PDF
- * + regex sulle etichette SSN). Se il PDF è scansione pura o ambiguo,
- * oppure se è una immagine, fa fallback sull'AI vision.
+ * Estrae da un allegato usando SOLO il parser deterministico (PDF + regex
+ * sulle etichette SSN). Tentiamo SEMPRE, anche su PDF-immagine: i PDF
+ * della farmacia hanno quasi sempre un layer di testo leggibile.
+ * Se l'estrazione fallisce, ritorniamo null (nessun fallback AI).
  */
 async function extractDocumentFromAttachment(base64: string, mimeType: string): Promise<ExtractedDoc | null> {
-  if (mimeType === "application/pdf") {
-    try {
-      const bin = atob(base64);
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      const { parsePdfRicetta } = await import("./ricette-parser.server");
-      const det = await parsePdfRicetta(bytes);
-      if (det) {
-        console.log("Parser deterministico ok:", det.tipo_documento, det.prescrizioni?.length ?? 0, "NRE");
-        return det;
-      }
-      console.log("Parser deterministico: ambiguo o PDF immagine, fallback AI");
-    } catch (e) {
-      console.warn("Parser deterministico fallito, fallback AI:", e instanceof Error ? e.message : e);
-    }
+  if (mimeType !== "application/pdf") {
+    console.log("Allegato non PDF, saltato (AI disabilitata):", mimeType);
+    return null;
   }
-  return extractDocumentWithAI(base64, mimeType);
+  try {
+    const bin = atob(base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const { parsePdfRicetta } = await import("./ricette-parser.server");
+    const det = await parsePdfRicetta(bytes);
+    if (det) {
+      console.log("Parser deterministico ok:", det.tipo_documento, det.prescrizioni?.length ?? 0, "NRE");
+      return det;
+    }
+    console.log("Parser deterministico: nessun risultato, allegato scartato (AI disabilitata)");
+    return null;
+  } catch (e) {
+    console.warn("Parser deterministico fallito:", e instanceof Error ? e.message : e);
+    return null;
+  }
 }
 
 async function callDocExtraction(apiKey: string, prompt: string, base64: string, mimeType: string, model: string): Promise<ExtractedDoc | null> {
