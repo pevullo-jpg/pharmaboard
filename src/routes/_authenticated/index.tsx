@@ -536,6 +536,7 @@ function FarmaciaDashboard() {
                 )}
               </div>
             </div>
+          </>
           );
           })}
         </div>
