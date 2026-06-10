@@ -188,7 +188,7 @@ function AssistitiPage() {
                   </Button>
                   <ChevronRight className="size-4 text-muted-foreground" />
                 </div>
-              </Link>
+              </div>
             );
           })}
         </div>
