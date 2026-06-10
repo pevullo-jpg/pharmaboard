@@ -215,7 +215,7 @@ export const getRicettaAttachment = createServerFn({ method: "POST" })
     const msg = (await msgRes.json()) as GmailMessage;
 
     const atts = collectAttachmentParts(msg.payload?.parts);
-    if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType === "application/pdf" || msg.payload.mimeType.startsWith("image/"))) {
+    if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType.toLowerCase().includes("pdf") || msg.payload.mimeType.startsWith("image/") || msg.payload.mimeType === "application/octet-stream")) {
       atts.push({ mimeType: msg.payload.mimeType, body: msg.payload.body, filename: "ricetta" });
     }
     const att = atts[0];
@@ -271,7 +271,7 @@ async function fetchFirstAttachmentBytes(emailId: string): Promise<{ bytes: Uint
   if (!msgRes.ok) return null;
   const msg = (await msgRes.json()) as GmailMessage;
   const atts = collectAttachmentParts(msg.payload?.parts);
-  if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType === "application/pdf" || msg.payload.mimeType.startsWith("image/"))) {
+  if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType.toLowerCase().includes("pdf") || msg.payload.mimeType.startsWith("image/") || msg.payload.mimeType === "application/octet-stream")) {
     atts.push({ mimeType: msg.payload.mimeType, body: msg.payload.body });
   }
   const att = atts[0];
@@ -292,7 +292,7 @@ async function fetchAllAttachmentsBytes(emailId: string): Promise<{ bytes: Uint8
   if (!msgRes.ok) return [];
   const msg = (await msgRes.json()) as GmailMessage;
   const atts = collectAttachmentParts(msg.payload?.parts);
-  if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType === "application/pdf" || msg.payload.mimeType.startsWith("image/"))) {
+  if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType.toLowerCase().includes("pdf") || msg.payload.mimeType.startsWith("image/") || msg.payload.mimeType === "application/octet-stream")) {
     atts.push({ mimeType: msg.payload.mimeType, body: msg.payload.body });
   }
   const out: { bytes: Uint8Array; mimeType: string }[] = [];
@@ -1203,7 +1203,7 @@ export async function runHubSync(): Promise<{
     const farmaciaId = target.id;
 
     const attachments = collectAttachmentParts(msg.payload?.parts);
-    if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType === "application/pdf" || msg.payload.mimeType.startsWith("image/"))) {
+    if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType.toLowerCase().includes("pdf") || msg.payload.mimeType.startsWith("image/") || msg.payload.mimeType === "application/octet-stream")) {
       attachments.push({ mimeType: msg.payload.mimeType, body: msg.payload.body, filename: subject });
     }
 
