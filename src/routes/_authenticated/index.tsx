@@ -283,7 +283,7 @@ function FarmaciaDashboard() {
   const { data, isLoading } = useQuery({
     queryKey: ["dashboard-stats"],
     queryFn: async () => {
-      const [prenotazioni, ricette, dpc, debiti, ultimeRicette, prenIds, debIds] = await Promise.all([
+      const [prenotazioni, ricette, dpc, debiti, ultimeRicette, prenIds, debIds, dpcIds] = await Promise.all([
         supabase.from("prenotazioni").select("id", { count: "exact", head: true }).in("stato", ["in_attesa", "pronto"]),
         supabase.from("ricette").select("id", { count: "exact", head: true }).eq("stato", "nuova"),
         supabase.from("ricette").select("id", { count: "exact", head: true }).eq("is_dpc_alert", true).eq("stato", "nuova"),
@@ -291,6 +291,7 @@ function FarmaciaDashboard() {
         supabase.from("ricette").select("id, assistito_id, nome, cognome, codice_fiscale, data_ricetta, medico, dpc, is_dpc_alert, stato, created_at").order("data_ricetta", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false }).limit(200),
         supabase.from("prenotazioni").select("assistito_id").in("stato", ["in_attesa", "pronto"]),
         supabase.from("debiti").select("assistito_id").eq("stato", "aperto"),
+        supabase.from("ricette").select("assistito_id, codice_fiscale").or("is_dpc_alert.eq.true,dpc.eq.true"),
       ]);
       const totaleDebiti = (debiti.data ?? []).reduce((s, r: { importo: number | string }) => s + Number(r.importo ?? 0), 0);
       const all = ultimeRicette.data ?? [];
@@ -317,6 +318,11 @@ function FarmaciaDashboard() {
       });
       const prenSet = new Set((prenIds.data ?? []).map((r: { assistito_id: string | null }) => r.assistito_id).filter(Boolean) as string[]);
       const debSet = new Set((debIds.data ?? []).map((r: { assistito_id: string | null }) => r.assistito_id).filter(Boolean) as string[]);
+      const dpcSet = new Set<string>();
+      for (const r of (dpcIds.data ?? []) as { assistito_id: string | null; codice_fiscale: string | null }[]) {
+        const id = r.assistito_id ?? (r.codice_fiscale ? assistitoIdByCf.get(r.codice_fiscale) ?? null : null);
+        if (id) dpcSet.add(id);
+      }
       return {
         prenotazioni: prenotazioni.count ?? 0,
         ricette: ricette.count ?? 0,
@@ -325,6 +331,7 @@ function FarmaciaDashboard() {
         all: withStatus,
         prenSet,
         debSet,
+        dpcSet,
       };
     },
   });
