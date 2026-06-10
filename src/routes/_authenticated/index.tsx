@@ -443,7 +443,7 @@ function FarmaciaDashboard() {
                 : kind === "expiring"
                   ? "bg-amber-500/10 hover:bg-amber-500/15"
                   : section === "dpc"
-                    ? "bg-accent/5 hover:bg-accent/10"
+                    ? "bg-rose-500/8 hover:bg-rose-500/12"
                     : "hover:bg-sidebar-accent/30";
             return (
             <>
@@ -458,8 +458,8 @@ function FarmaciaDashboard() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium truncate">{r.cognome ?? ""} {r.nome ?? ""}</span>
                   {r.codice_fiscale && <span className="text-xs text-muted-foreground font-mono">{r.codice_fiscale}</span>}
-                  {r.is_dpc_alert && <Badge className="bg-accent/20 text-accent border border-accent/40 accent-glow">DPC</Badge>}
-                  {r.dpc && !r.is_dpc_alert && <Badge variant="outline">DPC</Badge>}
+                  {r.is_dpc_alert && <Badge className="bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-[0_0_8px_rgba(244,63,94,0.25)]">DPC</Badge>}
+                  {r.dpc && !r.is_dpc_alert && <Badge variant="outline" className="border-rose-500/30 text-rose-300/80">DPC</Badge>}
                   {kind === "expiring" && days !== null && (
                     <Badge className="bg-amber-500/20 text-amber-300 border border-amber-500/40 gap-1">
                       <Clock className="size-3" /> Scade tra {Math.max(0, 30 - days)}g
