@@ -1202,6 +1202,16 @@ export async function runHubSync(): Promise<{
 
       const mime = att.mimeType ?? "application/octet-stream";
       const extracted = await extractDocumentFromAttachment(base64, mime);
+      console.log(`Hub sync extract ${m.id} (${att.filename ?? "?"}/${mime}) →`, extracted ? {
+        tipo: extracted.tipo_documento,
+        cf: extracted.codice_fiscale,
+        nome: extracted.nome,
+        cognome: extracted.cognome,
+        medico: extracted.medico,
+        nre: (extracted.prescrizioni ?? []).map((p) => p.numero_ricetta),
+        kw: extracted.keyword_prescrizione_trovata,
+        bc: extracted.has_barcode_code39,
+      } : "null");
       if (!extracted) { skipped++; continue; }
 
       // Filtra documenti non pertinenti.
