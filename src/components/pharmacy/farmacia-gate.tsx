@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 import { getMyFarmacia } from "@/lib/farmacie.functions";
@@ -13,10 +13,31 @@ export function FarmaciaGate({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const fetchFn = useServerFn(getMyFarmacia);
+  // Verify there's a live session BEFORE firing the serverFn: a stale
+  // localStorage user with no refresh token would otherwise trigger an
+  // Unauthorized error captured by the dev overlay as a blank screen.
+  const [hasSession, setHasSession] = useState<boolean | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (cancelled) return;
+      if (!data.session) {
+        await qc.cancelQueries();
+        qc.clear();
+        await supabase.auth.signOut();
+        navigate({ to: "/auth", replace: true });
+        return;
+      }
+      setHasSession(true);
+    })();
+    return () => { cancelled = true; };
+  }, [navigate, qc]);
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["my-farmacia"],
     queryFn: () => fetchFn(),
     staleTime: 30_000,
+    enabled: hasSession === true,
     retry: (failureCount, err) => {
       const msg = err instanceof Error ? err.message : String(err);
       if (msg.includes("Unauthorized")) return false;
@@ -40,7 +61,7 @@ export function FarmaciaGate({ children }: { children: React.ReactNode }) {
     }
   }, [isError, error, navigate, qc]);
 
-  if (isLoading) {
+  if (hasSession !== true || isLoading) {
     return (
       <div className="min-h-screen grid place-items-center">
         <Loader2 className="size-6 animate-spin text-muted-foreground" />
