@@ -151,8 +151,12 @@ function AssistitiPage() {
           {(data ?? []).map((a) => {
             const anticipiAperti = (a.anticipi ?? []).filter((p: { stato: string }) => p.stato === "aperto").length;
             return (
-              <div key={a.id} onClick={() => setDetailId(a.id)} className="flex items-center justify-between gap-4 px-5 py-4 hover:bg-sidebar-accent/30 transition-colors flex-wrap cursor-pointer">
-                <div className="min-w-0 flex-1">
+              <div key={a.id} className="flex items-center justify-between gap-4 px-5 py-4 hover:bg-sidebar-accent/30 transition-colors flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setDetailId(a.id)}
+                  className="min-w-0 flex-1 text-left cursor-pointer"
+                >
                   <div className="font-medium">
                     {a.cognome} {a.nome}
                     {a.alias && <span className="ml-2 text-xs text-muted-foreground">«{a.alias}»</span>}
@@ -162,7 +166,7 @@ function AssistitiPage() {
                     {a.medico && <span>Dr. {a.medico}</span>}
                     {a.esenzione && <span>Esenz. {a.esenzione}</span>}
                   </div>
-                </div>
+                </button>
                 <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
                   <Button
                     size="sm"
