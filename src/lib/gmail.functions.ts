@@ -1341,6 +1341,22 @@ export async function runHubSync(): Promise<{
         }
       }
     }
+
+    // Marca l'email come letta (rimuovi label UNREAD) così non viene più
+    // riprocessata, indipendentemente dal fatto che siano state estratte o
+    // meno ricette valide.
+    try {
+      const modRes = await fetch(`${GATEWAY_URL}/users/me/messages/${m.id}/modify`, {
+        method: "POST",
+        headers: { ...gmailHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ removeLabelIds: ["UNREAD"] }),
+      });
+      if (!modRes.ok) {
+        console.error("Gmail mark-as-read failed", m.id, modRes.status, (await modRes.text()).slice(0, 200));
+      }
+    } catch (e) {
+      console.error("Gmail mark-as-read error", m.id, e instanceof Error ? e.message : e);
+    }
   }
 
   return {
