@@ -725,28 +725,32 @@ Rispondi SOLO con il JSON.`;
 }
 
 /**
- * Estrae da un allegato cercando prima la via deterministica (parser PDF
- * + regex sulle etichette SSN). Se il PDF è scansione pura o ambiguo,
- * oppure se è una immagine, fa fallback sull'AI vision.
+ * Estrae da un allegato usando SOLO il parser deterministico (PDF + regex
+ * sulle etichette SSN). Tentiamo SEMPRE, anche su PDF-immagine: i PDF
+ * della farmacia hanno quasi sempre un layer di testo leggibile.
+ * Se l'estrazione fallisce, ritorniamo null (nessun fallback AI).
  */
 async function extractDocumentFromAttachment(base64: string, mimeType: string): Promise<ExtractedDoc | null> {
-  if (mimeType === "application/pdf") {
-    try {
-      const bin = atob(base64);
-      const bytes = new Uint8Array(bin.length);
-      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      const { parsePdfRicetta } = await import("./ricette-parser.server");
-      const det = await parsePdfRicetta(bytes);
-      if (det) {
-        console.log("Parser deterministico ok:", det.tipo_documento, det.prescrizioni?.length ?? 0, "NRE");
-        return det;
-      }
-      console.log("Parser deterministico: ambiguo o PDF immagine, fallback AI");
-    } catch (e) {
-      console.warn("Parser deterministico fallito, fallback AI:", e instanceof Error ? e.message : e);
-    }
+  if (mimeType !== "application/pdf") {
+    console.log("Allegato non PDF, saltato (AI disabilitata):", mimeType);
+    return null;
   }
-  return extractDocumentWithAI(base64, mimeType);
+  try {
+    const bin = atob(base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const { parsePdfRicetta } = await import("./ricette-parser.server");
+    const det = await parsePdfRicetta(bytes);
+    if (det) {
+      console.log("Parser deterministico ok:", det.tipo_documento, det.prescrizioni?.length ?? 0, "NRE");
+      return det;
+    }
+    console.log("Parser deterministico: nessun risultato, allegato scartato (AI disabilitata)");
+    return null;
+  } catch (e) {
+    console.warn("Parser deterministico fallito:", e instanceof Error ? e.message : e);
+    return null;
+  }
 }
 
 async function callDocExtraction(apiKey: string, prompt: string, base64: string, mimeType: string, model: string): Promise<ExtractedDoc | null> {
