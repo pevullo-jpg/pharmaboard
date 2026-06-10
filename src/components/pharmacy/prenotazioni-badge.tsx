@@ -81,7 +81,7 @@ export function PrenotazioniBadge({ assistitoId, label }: { assistitoId: string;
         className={
           "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium border transition-colors " +
           (lit
-            ? "border-secondary bg-secondary/60 text-secondary-foreground hover:bg-secondary/80"
+            ? "neon-flash neon-primary border-primary/80 bg-primary/30 text-primary-foreground hover:bg-primary/45 shadow-[0_0_18px_-2px_var(--primary)]"
             : "border-border/40 bg-muted/30 text-muted-foreground hover:bg-muted/50")
         }
         title="Gestisci prenotazioni"

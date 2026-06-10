@@ -145,3 +145,20 @@
 @utility accent-glow {
   box-shadow: var(--shadow-glow);
 }
+
+/* Neon power-on flash: uses filter so it composes with static box-shadow.
+   Set --neon-color on the element (or via a tone utility below). */
+@keyframes neon-flash {
+  0%   { filter: drop-shadow(0 0 0 transparent) brightness(0.9); }
+  30%  { filter: drop-shadow(0 0 18px var(--neon-color, oklch(0.78 0.09 195))) brightness(1.55) saturate(1.35); }
+  100% { filter: drop-shadow(0 0 0 transparent) brightness(1); }
+}
+
+@utility neon-flash {
+  animation: neon-flash 900ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@utility neon-emerald { --neon-color: oklch(0.78 0.19 160); }
+@utility neon-accent  { --neon-color: oklch(0.82 0.13 195); }
+@utility neon-primary { --neon-color: oklch(0.72 0.16 235); }
+@utility neon-secondary { --neon-color: oklch(0.72 0.16 235); }

@@ -75,7 +75,7 @@ export function DebitiBadge({ assistitoId, label }: { assistitoId: string; label
         className={
           "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium border transition-colors " +
           (lit
-            ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 shadow-[0_0_14px_-4px_rgb(16_185_129/0.55)]"
+            ? "neon-flash neon-emerald border-emerald-400/80 bg-emerald-500/30 text-emerald-100 hover:bg-emerald-500/40 shadow-[0_0_18px_-2px_rgb(16_185_129/0.8)]"
             : "border-border/40 bg-muted/30 text-muted-foreground hover:bg-muted/50")
         }
         title="Gestisci debiti"

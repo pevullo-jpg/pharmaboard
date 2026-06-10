@@ -5,10 +5,10 @@ import type { LucideIcon } from "lucide-react";
 export type StatTone = "primary" | "accent" | "secondary" | "emerald";
 
 const TONE_ACTIVE: Record<StatTone, string> = {
-  primary: "border-primary/60 bg-primary/10 ring-1 ring-primary/40 shadow-[0_0_28px_-8px_hsl(var(--primary)/0.55)]",
-  accent: "border-accent/60 bg-accent/10 ring-1 ring-accent/40 accent-glow",
-  secondary: "border-secondary bg-secondary/40 ring-1 ring-secondary/70",
-  emerald: "border-emerald-500/60 bg-emerald-500/10 ring-1 ring-emerald-500/40 shadow-[0_0_28px_-8px_rgb(16_185_129/0.6)]",
+  primary: "neon-flash neon-primary border-primary/70 bg-primary/15 ring-1 ring-primary/50 shadow-[0_0_36px_-6px_var(--primary)]",
+  accent: "neon-flash neon-accent border-accent/70 bg-accent/15 ring-1 ring-accent/50 shadow-[0_0_36px_-6px_var(--accent)]",
+  secondary: "neon-flash neon-primary border-primary/60 bg-secondary/50 ring-1 ring-primary/40 shadow-[0_0_36px_-6px_var(--primary)]",
+  emerald: "neon-flash neon-emerald border-emerald-400/70 bg-emerald-500/15 ring-1 ring-emerald-400/50 shadow-[0_0_36px_-6px_rgb(16_185_129/0.85)]",
 };
 
 const TONE_ICON: Record<StatTone, string> = {

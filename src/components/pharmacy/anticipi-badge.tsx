@@ -98,7 +98,7 @@ export function AnticipiBadge({ assistitoId, label }: { assistitoId: string; lab
         className={
           "inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium border transition-colors " +
           (lit
-            ? "border-accent/50 bg-accent/15 text-accent hover:bg-accent/25 accent-glow"
+            ? "neon-flash neon-accent border-accent bg-accent/30 text-accent-foreground hover:bg-accent/45 accent-glow shadow-[0_0_18px_-2px_var(--accent)]"
             : "border-border/40 bg-muted/30 text-muted-foreground hover:bg-muted/50")
         }
         title="Gestisci anticipi"
