@@ -26,8 +26,7 @@ function AssistitoDetailRoute() {
   return <AssistitoDetail id={id} />;
 }
 
-function AssistitoDetail() {
-  const { id } = Route.useParams();
+export function AssistitoDetail({ id, onClose }: { id: string; onClose?: () => void }) {
   const qc = useQueryClient();
   const openAtt = useServerFn(getRicettaAttachment);
   const delEmail = useServerFn(deleteRicettaEmail);
