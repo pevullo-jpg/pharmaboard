@@ -383,15 +383,16 @@ function FarmaciaDashboard() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard label="Prenotazioni attive" value={isLoading ? "…" : data!.prenotazioni} icon={CalendarClock} hint="In attesa o pronte" tone="secondary" active={filter === "prenotazioni"} onClick={() => toggle("prenotazioni")} />
-        <StatCard label="Ricette nuove" value={isLoading ? "…" : data!.ricette} icon={FileText} hint="Da lavorare" tone="primary" active={filter === "ricette"} onClick={() => toggle("ricette")} />
-        <StatCard label="Avvisi DPC" value={isLoading ? "…" : data!.dpc} icon={AlertTriangle} hint="Da evidenziare" tone="accent" active={filter === "dpc"} onClick={() => toggle("dpc")} />
+        <StatCard label="Prenotazioni attive" value={isLoading ? "…" : data!.prenotazioni} icon={CalendarClock} hint="In attesa o pronte" tone="secondary" neonColor="yellow" active={filter === "prenotazioni"} onClick={() => toggle("prenotazioni")} />
+        <StatCard label="Ricette nuove" value={isLoading ? "…" : data!.ricette} icon={FileText} hint="Da lavorare" tone="primary" neonColor="fuchsia" active={filter === "ricette"} onClick={() => toggle("ricette")} />
+        <StatCard label="Avvisi DPC" value={isLoading ? "…" : data!.dpc} icon={AlertTriangle} hint="Da evidenziare" tone="accent" neonColor="red" active={filter === "dpc"} onClick={() => toggle("dpc")} dangerIcon={!isLoading && (data?.dpc ?? 0) > 0} />
         <StatCard
           label="Debiti aperti"
           value={isLoading ? "…" : new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(data!.debiti)}
           icon={Euro}
           hint="Totale insoluto"
           tone="emerald"
+          neonColor="green"
           active={filter === "debiti"}
           onClick={() => toggle("debiti")}
         />
