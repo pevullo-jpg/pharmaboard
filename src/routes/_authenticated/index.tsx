@@ -355,7 +355,10 @@ function FarmaciaDashboard() {
       const expired = deduped.filter((r) => r._kind === "expired").sort((a, b) => (b._days ?? 0) - (a._days ?? 0));
       const expiring = deduped.filter((r) => r._kind === "expiring").sort((a, b) => (b._days ?? 0) - (a._days ?? 0));
       const shown = new Set([...expired, ...expiring].map((r) => r._assistito_id ?? r.assistito_id ?? r.id));
-      const dpc = deduped.filter((r) => !shown.has(r._assistito_id ?? r.assistito_id ?? r.id) && r.is_dpc_alert);
+      const dpc = deduped.filter((r) => {
+        const aid = r._assistito_id ?? r.assistito_id ?? r.id;
+        return !shown.has(aid) && (r.is_dpc_alert || r.dpc || (r._assistito_id && data.dpcSet.has(r._assistito_id)));
+      });
       const shown2 = new Set([...expired, ...expiring, ...dpc].map((r) => r._assistito_id ?? r.assistito_id ?? r.id));
       const normal = deduped.filter((r) => !shown2.has(r._assistito_id ?? r.assistito_id ?? r.id)).slice(0, 8);
       return [
@@ -367,7 +370,7 @@ function FarmaciaDashboard() {
     }
     let matched = all;
     if (filter === "ricette") matched = all.filter((r) => r.stato === "nuova");
-    else if (filter === "dpc") matched = all.filter((r) => r.is_dpc_alert);
+    else if (filter === "dpc") matched = all.filter((r) => r.is_dpc_alert || r.dpc || (r._assistito_id && data.dpcSet.has(r._assistito_id)));
     else if (filter === "prenotazioni") matched = all.filter((r) => r._assistito_id && data.prenSet.has(r._assistito_id));
     else if (filter === "debiti") matched = all.filter((r) => r._assistito_id && data.debSet.has(r._assistito_id));
     // dedupe per assistito (keep most recent — list è già ordinata per data_ricetta desc)
