@@ -287,7 +287,7 @@ function FarmaciaDashboard() {
         supabase.from("ricette").select("id", { count: "exact", head: true }).eq("stato", "nuova"),
         supabase.from("ricette").select("id", { count: "exact", head: true }).eq("is_dpc_alert", true).eq("stato", "nuova"),
         supabase.from("debiti").select("importo").eq("stato", "aperto"),
-        supabase.from("ricette").select("id, assistito_id, nome, cognome, codice_fiscale, data_ricetta, medico, dpc, is_dpc_alert, stato, created_at").order("created_at", { ascending: false }).limit(200),
+        supabase.from("ricette").select("id, assistito_id, nome, cognome, codice_fiscale, data_ricetta, medico, dpc, is_dpc_alert, stato, created_at").order("data_ricetta", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false }).limit(200),
         supabase.from("prenotazioni").select("assistito_id").in("stato", ["in_attesa", "pronto"]),
         supabase.from("debiti").select("assistito_id").eq("stato", "aperto"),
       ]);
@@ -342,7 +342,7 @@ function FarmaciaDashboard() {
     else if (filter === "dpc") matched = all.filter((r) => r.is_dpc_alert);
     else if (filter === "prenotazioni") matched = all.filter((r) => r._assistito_id && data.prenSet.has(r._assistito_id));
     else if (filter === "debiti") matched = all.filter((r) => r._assistito_id && data.debSet.has(r._assistito_id));
-    // dedupe per assistito (keep most recent — list is already sorted by created_at desc)
+    // dedupe per assistito (keep most recent — list è già ordinata per data_ricetta desc)
     const seen = new Set<string>();
     const out: typeof matched = [];
     for (const r of matched) {
