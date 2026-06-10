@@ -386,7 +386,9 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
       const db = b.data_ricetta ?? b.created_at ?? "";
       return da.localeCompare(db);
     });
-    if (!ricette || ricette.length === 0) throw new Error("Nessuna ricetta con allegato per questo assistito");
+    if (!ricette || ricette.length === 0) {
+      return { empty: true as const, dataUrl: "", mergedCount: 0, skipped: 0, errors: [] };
+    }
 
     const { PDFDocument } = await import("pdf-lib");
     const merged = await PDFDocument.create();
