@@ -65,7 +65,7 @@ function AssistitiPage() {
     queryFn: async () => {
       let q = supabase
         .from("assistiti")
-        .select("id, nome, cognome, codice_fiscale, medico, esenzione, debiti(importo, stato), prenotazioni(id, stato), anticipi(id, stato)")
+        .select("id, nome, cognome, alias, codice_fiscale, medico, esenzione, debiti(importo, stato), prenotazioni(id, stato), anticipi(id, stato)")
         .order("cognome", { ascending: true });
       if (search.trim()) {
         const s = `%${search.trim()}%`;
