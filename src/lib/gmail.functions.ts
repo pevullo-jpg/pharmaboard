@@ -1372,7 +1372,7 @@ export async function runHubSync(): Promise<{
     try {
       const modRes = await fetch(`${GATEWAY_URL}/users/me/messages/${m.id}/modify`, {
         method: "POST",
-        headers: { ...gmailHeaders(), "Content-Type": "application/json" },
+        headers: gmailHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({ removeLabelIds: ["UNREAD"] }),
       });
       if (!modRes.ok) {
