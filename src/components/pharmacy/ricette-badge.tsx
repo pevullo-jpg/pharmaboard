@@ -13,12 +13,20 @@ export function RicetteBadge({ assistitoId }: { assistitoId: string }) {
   const { data: countData } = useQuery({
     queryKey: ["ricette-count", assistitoId],
     queryFn: async () => {
-      const { count, error } = await supabase
+      const { data, error } = await supabase
         .from("ricette")
-        .select("*", { count: "exact", head: true })
+        .select("numero_ricetta")
         .eq("assistito_id", assistitoId);
       if (error) throw error;
-      return count ?? 0;
+      // Il numero mostrato = numero di NRE DIVERSI (le righe sintesi con lo
+      // stesso NRE di una ricetta non contano due volte).
+      const nres = new Set<string>();
+      let senzaNre = 0;
+      for (const r of data ?? []) {
+        if (r.numero_ricetta) nres.add(r.numero_ricetta);
+        else senzaNre++;
+      }
+      return nres.size + senzaNre;
     },
   });
 

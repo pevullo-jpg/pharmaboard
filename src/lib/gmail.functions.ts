@@ -1247,13 +1247,34 @@ export async function runHubSync(): Promise<{
         // Dedup per NRE: una ricetta con stesso NRE non va reimportata.
         const { data: existsNre } = await supabaseAdmin
           .from("ricette")
-          .select("id")
+          .select("id, tipo_documento")
           .eq("farmacia_id", farmaciaId)
           .eq("numero_ricetta", nreCanon)
           .limit(1);
         if (existsNre && existsNre.length > 0) {
-          // Sintesi: salta sempre. Ricetta full: salta comunque (è la stessa ricetta).
-          skipped++;
+          const existing = existsNre[0];
+          // Se esiste solo la riga "sintesi" e ora arriva la ricetta piena,
+          // promuoviamo la riga esistente a ricetta (la sintesi non deve
+          // mai oscurare la ricetta vera con lo stesso NRE).
+          if (tipo === "ricetta" && existing.tipo_documento === "sintesi") {
+            await supabaseAdmin.from("ricette").update({
+              assistito_id: assistitoId,
+              nome: extracted.nome ?? null,
+              cognome: extracted.cognome ?? null,
+              codice_fiscale: cfValid,
+              medico: extracted.medico ?? null,
+              esenzione: extracted.esenzione ?? null,
+              data_ricetta: extracted.data_ricetta ?? null,
+              codice_regionale: p.codice_regionale ?? null,
+              tipo_documento: "ricetta",
+              dpc: isDpc,
+              is_dpc_alert: isDpc,
+              source_email_id: m.id,
+            }).eq("id", existing.id);
+            importedRicette++;
+          } else {
+            skipped++;
+          }
           continue;
         }
 
