@@ -527,7 +527,7 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
     return {
       dataUrl: `data:application/pdf;base64,${base64}`,
       mergedCount: added,
-      skipped: ricette.length - added,
+      skipped: Math.max(0, wantedNres.size - addedNres.size),
       errors,
     };
   });
