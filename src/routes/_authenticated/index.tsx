@@ -460,6 +460,9 @@ function FarmaciaDashboard() {
                 {assistitoId && (
                   <PrenotazioniBadge assistitoId={assistitoId} label={`${r.cognome ?? ""} ${r.nome ?? ""}`.trim()} />
                 )}
+                {assistitoId && (
+                  <RicetteBadge assistitoId={assistitoId} />
+                )}
                 <Badge variant={r.stato === "nuova" ? "default" : "secondary"}>{r.stato}</Badge>
                 <Button
                   size="icon"
