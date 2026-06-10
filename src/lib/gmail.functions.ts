@@ -125,20 +125,28 @@ async function resolveOrCreateAssistito(args: {
   // 1) Match esclusivamente per CF
   const { data: byCf } = await supabaseAdmin
     .from("assistiti")
-    .select("id")
+    .select("id, nome, cognome")
     .eq("farmacia_id", farmaciaId)
     .eq("codice_fiscale", cf)
     .maybeSingle();
   if (byCf) {
     console.log("resolveAssistito: hit by CF", cf, "→", byCf.id);
+    // Se l'assistito esiste con placeholder (creato da una sintesi che
+    // conteneva solo CF) e ora abbiamo nome/cognome reali, aggiorniamoli.
+    const isPlaceholder = (s: string | null) => !s || s === "(sconosciuto)";
+    const patch: Record<string, string> = {};
+    if (isPlaceholder(byCf.cognome) && cognome) patch.cognome = cognome;
+    if (isPlaceholder(byCf.nome) && nome) patch.nome = nome;
+    if (Object.keys(patch).length > 0) {
+      await supabaseAdmin.from("assistiti").update(patch).eq("id", byCf.id);
+    }
     return byCf.id;
   }
 
-  // 2) Crea nuovo: serve almeno cognome o nome per intestare il record
-  if (!cognome && !nome) {
-    console.warn("resolveAssistito: skip create — CF presente ma nome/cognome assenti", cf);
-    return null;
-  }
+  // 2) Crea nuovo. Il CF (validato dal checksum) è sufficiente: per le
+  // sintesi non conosciamo nome/cognome → li riempiamo con placeholder,
+  // così l'assistito compare comunque in dashboard e nell'elenco assistiti
+  // (verranno aggiornati alla prima ricetta canonica con lo stesso CF).
   const { data: created, error: cErr } = await supabaseAdmin
     .from("assistiti")
     .insert({
