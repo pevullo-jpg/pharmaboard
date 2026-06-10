@@ -445,6 +445,7 @@ function FarmaciaDashboard() {
             const days = (r as { _days?: number | null })._days ?? null;
             const assistitoId = (r as { _assistito_id?: string | null })._assistito_id ?? r.assistito_id;
             const section = (r as { _section?: "expired" | "expiring" | "dpc" | "normal" })._section;
+            const hasDpc = r.is_dpc_alert || r.dpc || (assistitoId ? data?.dpcSet.has(assistitoId) ?? false : false);
             const prevSection = i > 0 ? (rows[i - 1] as { _section?: "expired" | "expiring" | "dpc" | "normal" })._section : undefined;
             const isNewDpcSection = section === "dpc" && prevSection !== "dpc";
             const rowCls =
@@ -468,8 +469,7 @@ function FarmaciaDashboard() {
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium truncate">{r.cognome ?? ""} {r.nome ?? ""}</span>
                   {r.codice_fiscale && <span className="text-xs text-muted-foreground font-mono">{r.codice_fiscale}</span>}
-                  {r.is_dpc_alert && <Badge className="bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-[0_0_8px_rgba(244,63,94,0.25)]">DPC</Badge>}
-                  {r.dpc && !r.is_dpc_alert && <Badge variant="outline" className="border-rose-500/30 text-rose-300/80">DPC</Badge>}
+                  {hasDpc && <Badge className="bg-rose-500/20 text-rose-300 border border-rose-500/40 shadow-[0_0_8px_rgba(244,63,94,0.25)]">DPC</Badge>}
                   {kind === "expiring" && days !== null && (
                     <Badge className="bg-amber-500/20 text-amber-300 border border-amber-500/40 gap-1">
                       <Clock className="size-3" /> Scade tra {Math.max(0, 30 - days)}g
