@@ -57,6 +57,10 @@ export function AssistitoDetail({ id, onClose }: { id: string; onClose?: () => v
   const mergeMutation = useMutation({
     mutationFn: async () => mergePdfs({ data: { assistitoId: id } }),
     onSuccess: (res) => {
+      if ("empty" in res && res.empty) {
+        toast.info("Nessuna ricetta con allegato per questo assistito");
+        return;
+      }
       const w = window.open("", "_blank");
       if (!w) { toast.error("Popup bloccato. Consenti i popup."); return; }
       w.document.write(`<iframe src="${res.dataUrl}" style="border:0;width:100%;height:100vh"></iframe>`);

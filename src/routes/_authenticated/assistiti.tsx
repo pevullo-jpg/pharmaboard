@@ -47,6 +47,10 @@ function AssistitiPage() {
     setMergingId(assistitoId);
     try {
       const res = await mergePdfs({ data: { assistitoId } });
+      if ("empty" in res && res.empty) {
+        toast.info("Nessuna ricetta con allegato per questo assistito");
+        return;
+      }
       const w = window.open("", "_blank");
       if (!w) {
         toast.error("Abilita i popup per visualizzare il PDF");
