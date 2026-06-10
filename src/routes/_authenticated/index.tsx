@@ -16,6 +16,7 @@ import { toast } from "sonner";
 import { DebitiBadge } from "@/components/pharmacy/debiti-badge";
 import { AnticipiBadge } from "@/components/pharmacy/anticipi-badge";
 import { PrenotazioniBadge } from "@/components/pharmacy/prenotazioni-badge";
+import { RicetteBadge } from "@/components/pharmacy/ricette-badge";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { useState } from "react";
 
@@ -458,6 +459,9 @@ function FarmaciaDashboard() {
                 )}
                 {assistitoId && (
                   <PrenotazioniBadge assistitoId={assistitoId} label={`${r.cognome ?? ""} ${r.nome ?? ""}`.trim()} />
+                )}
+                {assistitoId && (
+                  <RicetteBadge assistitoId={assistitoId} />
                 )}
                 <Badge variant={r.stato === "nuova" ? "default" : "secondary"}>{r.stato}</Badge>
                 <Button

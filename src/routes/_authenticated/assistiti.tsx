@@ -1,8 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
-import { getAssistitoMergedPdf } from "@/lib/gmail.functions";
 import { supabase } from "@/integrations/supabase/client";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -19,12 +17,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Search, ChevronRight, UserPlus, FileStack, Loader2, Trash2 } from "lucide-react";
+import { Search, ChevronRight, UserPlus, Loader2, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { DebitiBadge } from "@/components/pharmacy/debiti-badge";
 import { AnticipiBadge } from "@/components/pharmacy/anticipi-badge";
 import { PrenotazioniBadge } from "@/components/pharmacy/prenotazioni-badge";
+import { RicetteBadge } from "@/components/pharmacy/ricette-badge";
 import { AssistitoDetail } from "@/routes/_authenticated/assistiti.$id";
 
 export const Route = createFileRoute("/_authenticated/assistiti")({
@@ -37,34 +36,7 @@ function AssistitiPage() {
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [detailId, setDetailId] = useState<string | null>(null);
-  const mergePdfs = useServerFn(getAssistitoMergedPdf);
-  const [mergingId, setMergingId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
-
-  const handleOpenRicette = async (e: React.MouseEvent, assistitoId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setMergingId(assistitoId);
-    try {
-      const res = await mergePdfs({ data: { assistitoId } });
-      if ("empty" in res && res.empty) {
-        toast.info("Nessuna ricetta con allegato per questo assistito");
-        return;
-      }
-      const w = window.open("", "_blank");
-      if (!w) {
-        toast.error("Abilita i popup per visualizzare il PDF");
-        return;
-      }
-      w.document.write(`<iframe src="${res.dataUrl}" style="border:0;width:100vw;height:100vh"></iframe>`);
-      w.document.close();
-      toast.success(`${res.mergedCount} ricette unite${res.skipped ? ` (${res.skipped} saltate)` : ""}`);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Errore");
-    } finally {
-      setMergingId(null);
-    }
-  };
 
   const { data, isLoading } = useQuery({
     queryKey: ["assistiti", search],
@@ -172,16 +144,7 @@ function AssistitiPage() {
                   </div>
                 </button>
                 <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={(e) => handleOpenRicette(e, a.id)}
-                    disabled={mergingId === a.id}
-                    className="gap-1"
-                  >
-                    {mergingId === a.id ? <Loader2 className="size-3.5 animate-spin" /> : <FileStack className="size-3.5" />}
-                    Ricette
-                  </Button>
+                  <RicetteBadge assistitoId={a.id} />
                   <DebitiBadge assistitoId={a.id} label={`${a.cognome} ${a.nome}`} />
                   <AnticipiBadge assistitoId={a.id} label={`${a.cognome} ${a.nome}`} />
                   <PrenotazioniBadge assistitoId={a.id} label={`${a.cognome} ${a.nome}`} />
