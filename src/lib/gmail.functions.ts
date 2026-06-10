@@ -378,7 +378,7 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
         // Ultimo tentativo: ri-scarica l'allegato e prova il parser deterministico.
         try {
           const att = await fetchFirstAttachmentBytes(r.source_email_id);
-          if (att && att.mimeType === "application/pdf") {
+          if (att && (looksLikePdf(att.bytes) || att.mimeType.toLowerCase().includes("pdf"))) {
             const { parsePdfRicetta } = await import("./ricette-parser.server");
             const det = await parsePdfRicetta(att.bytes);
             const detCf = normalizePersonValue(det?.codice_fiscale);
@@ -556,7 +556,11 @@ function collectAttachmentParts(parts: GmailPart[] | undefined, acc: GmailPart[]
   for (const p of parts) {
     const mt = p.mimeType ?? "";
     const fn = (p.filename ?? "").toLowerCase();
-    const isPdf = mt === "application/pdf" || (fn.endsWith(".pdf") && mt !== "application/pkcs7-signature");
+    // Il mimeType dichiarato è inaffidabile (octet-stream, "pdf", ecc.):
+    // accettiamo qualsiasi allegato binario con nome file — sarà il
+    // controllo dei magic bytes a valle a decidere se è un PDF vero.
+    const isSignature = mt === "application/pkcs7-signature" || fn.endsWith(".p7s");
+    const isPdf = !isSignature && (mt.toLowerCase().includes("pdf") || fn.endsWith(".pdf") || (!!fn && mt === "application/octet-stream"));
     const isImg = mt.startsWith("image/");
     if (p.body?.attachmentId && (isPdf || isImg)) {
       acc.push(p);
