@@ -136,9 +136,15 @@ export function AssistitoDetail({ id, onClose }: { id: string; onClose?: () => v
 
   return (
     <div className="space-y-6">
-      <Link to="/assistiti" className="text-sm text-muted-foreground inline-flex items-center gap-1 hover:text-foreground">
-        <ArrowLeft className="size-4" /> Tutti gli assistiti
-      </Link>
+      {onClose ? (
+        <Button variant="ghost" className="text-sm text-muted-foreground inline-flex items-center gap-1 hover:text-foreground px-0" onClick={onClose}>
+          <ArrowLeft className="size-4" /> Chiudi
+        </Button>
+      ) : (
+        <Link to="/assistiti" className="text-sm text-muted-foreground inline-flex items-center gap-1 hover:text-foreground">
+          <ArrowLeft className="size-4" /> Tutti gli assistiti
+        </Link>
+      )}
       <Card className="glass-card p-6">
         {!editing ? (
           <div className="flex flex-wrap items-start justify-between gap-4">
