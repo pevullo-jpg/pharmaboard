@@ -25,6 +25,7 @@ import { toast } from "sonner";
 import { DebitiBadge } from "@/components/pharmacy/debiti-badge";
 import { AnticipiBadge } from "@/components/pharmacy/anticipi-badge";
 import { PrenotazioniBadge } from "@/components/pharmacy/prenotazioni-badge";
+import { AssistitoDetail } from "@/routes/_authenticated/assistiti.$id";
 
 export const Route = createFileRoute("/_authenticated/assistiti")({
   head: () => ({ meta: [{ title: "Assistiti · Farmacia" }] }),
