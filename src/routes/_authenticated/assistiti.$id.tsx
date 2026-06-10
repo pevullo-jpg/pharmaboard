@@ -15,9 +15,6 @@ import { toast } from "sonner";
 import { getRicettaAttachment, deleteRicettaEmail, getAssistitoMergedPdf } from "@/lib/gmail.functions";
 import { format } from "date-fns";
 import { it } from "date-fns/locale";
-import { DebitiBadge } from "@/components/pharmacy/debiti-badge";
-import { AnticipiBadge } from "@/components/pharmacy/anticipi-badge";
-import { PrenotazioniBadge } from "@/components/pharmacy/prenotazioni-badge";
 
 export const Route = createFileRoute("/_authenticated/assistiti/$id")({
   head: () => ({ meta: [{ title: "Assistito · Farmacia" }] }),
@@ -169,9 +166,6 @@ export function AssistitoDetail({ id, onClose }: { id: string; onClose?: () => v
                   <Euro className="size-3.5 mr-1" /> {new Intl.NumberFormat("it-IT", { style: "currency", currency: "EUR" }).format(totaleDebiti)}
                 </Badge>
               )}
-              <DebitiBadge assistitoId={id} label={`${assistito.cognome} ${assistito.nome}`} />
-              <AnticipiBadge assistitoId={id} label={`${assistito.cognome} ${assistito.nome}`} />
-              <PrenotazioniBadge assistitoId={id} label={`${assistito.cognome} ${assistito.nome}`} />
               <Button size="sm" variant="outline" onClick={beginEdit} className="gap-1">
                 <Pencil className="size-4" /> Modifica
               </Button>
