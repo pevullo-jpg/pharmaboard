@@ -36,6 +36,7 @@ function AssistitiPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
+  const [detailId, setDetailId] = useState<string | null>(null);
   const mergePdfs = useServerFn(getAssistitoMergedPdf);
   const [mergingId, setMergingId] = useState<string | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
