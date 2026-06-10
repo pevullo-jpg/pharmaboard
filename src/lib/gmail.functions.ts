@@ -731,14 +731,23 @@ Rispondi SOLO con il JSON.`;
  * Se l'estrazione fallisce, ritorniamo null (nessun fallback AI).
  */
 async function extractDocumentFromAttachment(base64: string, mimeType: string): Promise<ExtractedDoc | null> {
-  if (mimeType !== "application/pdf") {
-    console.log("Allegato non PDF, saltato (AI disabilitata):", mimeType);
+  let bytes: Uint8Array;
+  try {
+    const bin = atob(base64);
+    bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  } catch (e) {
+    console.warn("Allegato: base64 non decodificabile", e instanceof Error ? e.message : e);
+    return null;
+  }
+  // NON fidarsi del mimeType dichiarato (spesso arriva come
+  // application/octet-stream o "pdf"): controlliamo i magic bytes %PDF
+  // nei primi 1024 byte. Ogni PDF reale passa SEMPRE dal parser deterministico.
+  if (!looksLikePdf(bytes) && !mimeType.toLowerCase().includes("pdf")) {
+    console.log("Allegato non PDF (magic bytes assenti), saltato:", mimeType);
     return null;
   }
   try {
-    const bin = atob(base64);
-    const bytes = new Uint8Array(bin.length);
-    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
     const { parsePdfRicetta } = await import("./ricette-parser.server");
     const det = await parsePdfRicetta(bytes);
     if (det) {
@@ -751,6 +760,17 @@ async function extractDocumentFromAttachment(base64: string, mimeType: string): 
     console.warn("Parser deterministico fallito:", e instanceof Error ? e.message : e);
     return null;
   }
+}
+
+/** Riconosce un PDF dai magic bytes `%PDF` entro i primi 1024 byte. */
+function looksLikePdf(bytes: Uint8Array): boolean {
+  const limit = Math.min(bytes.length, 1024) - 3;
+  for (let i = 0; i < limit; i++) {
+    if (bytes[i] === 0x25 && bytes[i + 1] === 0x50 && bytes[i + 2] === 0x44 && bytes[i + 3] === 0x46) {
+      return true;
+    }
+  }
+  return false;
 }
 
 async function callDocExtraction(apiKey: string, prompt: string, base64: string, mimeType: string, model: string): Promise<ExtractedDoc | null> {
