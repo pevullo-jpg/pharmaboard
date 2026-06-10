@@ -332,10 +332,22 @@ function FarmaciaDashboard() {
   const rows = (() => {
     if (!data) return [] as typeof data extends { all: infer A } ? A : never[];
     const all = data.all;
+    const dedupePerAssistito = (list: typeof all) => {
+      const seen = new Set<string>();
+      const out: typeof list = [];
+      for (const r of list) {
+        const key = r._assistito_id ?? r.assistito_id ?? `r:${r.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(r);
+      }
+      return out;
+    };
     if (filter === "all") {
-      const expired = all.filter((r) => r._kind === "expired").sort((a, b) => (b._days ?? 0) - (a._days ?? 0));
-      const expiring = all.filter((r) => r._kind === "expiring").sort((a, b) => (b._days ?? 0) - (a._days ?? 0));
-      const normal = all.filter((r) => r._kind === "normal").slice(0, 8);
+      const deduped = dedupePerAssistito(all);
+      const expired = deduped.filter((r) => r._kind === "expired").sort((a, b) => (b._days ?? 0) - (a._days ?? 0));
+      const expiring = deduped.filter((r) => r._kind === "expiring").sort((a, b) => (b._days ?? 0) - (a._days ?? 0));
+      const normal = deduped.filter((r) => r._kind === "normal").slice(0, 8);
       return [...expired, ...expiring, ...normal];
     }
     let matched = all;
@@ -344,14 +356,7 @@ function FarmaciaDashboard() {
     else if (filter === "prenotazioni") matched = all.filter((r) => r._assistito_id && data.prenSet.has(r._assistito_id));
     else if (filter === "debiti") matched = all.filter((r) => r._assistito_id && data.debSet.has(r._assistito_id));
     // dedupe per assistito (keep most recent — list è già ordinata per data_ricetta desc)
-    const seen = new Set<string>();
-    const out: typeof matched = [];
-    for (const r of matched) {
-      const key = r._assistito_id ?? r.assistito_id ?? `r:${r.id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push(r);
-    }
+    const out = dedupePerAssistito(matched);
     // expired first, then expiring, then normal
     const order = { expired: 0, expiring: 1, normal: 2 } as const;
     out.sort((a, b) => order[a._kind] - order[b._kind] || (b._days ?? 0) - (a._days ?? 0));
