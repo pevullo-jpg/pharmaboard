@@ -326,6 +326,32 @@ export type Database = {
         }
         Relationships: []
       }
+      gmail_oauth_states: {
+        Row: {
+          created_at: string
+          farmacia_id: string
+          state: string
+        }
+        Insert: {
+          created_at?: string
+          farmacia_id: string
+          state: string
+        }
+        Update: {
+          created_at?: string
+          farmacia_id?: string
+          state?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gmail_oauth_states_farmacia_id_fkey"
+            columns: ["farmacia_id"]
+            isOneToOne: true
+            referencedRelation: "farmacie"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       prenotazioni: {
         Row: {
           assistito_id: string

@@ -71,7 +71,6 @@ export const getGmailConnection = createServerFn({ method: "GET" })
 
 const StartSchema = z.object({
   redirectUri: RedirectUriSchema,
-  state: z.string().min(8).max(128).regex(/^[a-zA-Z0-9_-]+$/),
 });
 
 /** Costruisce l'URL di autorizzazione Google per il popup. */
@@ -79,9 +78,18 @@ export const startGmailConnect = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: z.infer<typeof StartSchema>) => StartSchema.parse(d))
   .handler(async ({ data, context }) => {
-    const { isOwner } = await getMembership(context as unknown as Ctx);
+    const { farmaciaId, isOwner } = await getMembership(context as unknown as Ctx);
     if (!isOwner) throw new Error("Solo il titolare può collegare la casella Gmail");
     const { clientId } = requireOAuthCreds();
+
+    // Lo stato anti-CSRF è generato e custodito lato server (il browser in
+    // anteprima ha lo storage partizionato e non può condividerlo col popup).
+    const state = crypto.randomUUID().replace(/-/g, "");
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin
+      .from("gmail_oauth_states")
+      .upsert({ farmacia_id: farmaciaId, state, created_at: new Date().toISOString() }, { onConflict: "farmacia_id" });
+    if (error) throw new Error(error.message);
 
     const params = new URLSearchParams({
       client_id: clientId,
@@ -90,13 +98,14 @@ export const startGmailConnect = createServerFn({ method: "POST" })
       scope: GMAIL_SCOPE,
       access_type: "offline",
       prompt: "consent",
-      state: data.state,
+      state,
     });
     return { authUrl: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}` };
   });
 
 const CompleteSchema = z.object({
   code: z.string().min(1).max(2048),
+  state: z.string().min(8).max(128).regex(/^[a-zA-Z0-9_-]+$/),
   redirectUri: RedirectUriSchema,
 });
 
@@ -108,6 +117,19 @@ export const completeGmailConnect = createServerFn({ method: "POST" })
     const { farmaciaId, isOwner } = await getMembership(context as unknown as Ctx);
     if (!isOwner) throw new Error("Solo il titolare può collegare la casella Gmail");
     const { clientId, clientSecret } = requireOAuthCreds();
+
+    // Verifica server-side dello stato anti-CSRF.
+    const { supabaseAdmin: admin } = await import("@/integrations/supabase/client.server");
+    const { data: stateRow } = await admin
+      .from("gmail_oauth_states")
+      .select("state, created_at")
+      .eq("farmacia_id", farmaciaId)
+      .maybeSingle();
+    const fresh = stateRow?.created_at && Date.now() - new Date(stateRow.created_at).getTime() < 15 * 60 * 1000;
+    if (!stateRow || stateRow.state !== data.state || !fresh) {
+      throw new Error("Verifica di sicurezza fallita. Riprova dalla pagina Impostazioni.");
+    }
+    await admin.from("gmail_oauth_states").delete().eq("farmacia_id", farmaciaId);
 
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
       method: "POST",
