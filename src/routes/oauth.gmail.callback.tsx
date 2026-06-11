@@ -22,8 +22,8 @@ function GmailCallbackPage() {
       const code = params.get("code");
       const state = params.get("state");
       const errorParam = params.get("error");
-      const expectedState = sessionStorage.getItem("gmail_oauth_state");
-      sessionStorage.removeItem("gmail_oauth_state");
+      const expectedState = localStorage.getItem("gmail_oauth_state");
+      localStorage.removeItem("gmail_oauth_state");
 
       const finish = (ok: boolean, msg: string, email?: string | null) => {
         if (cancelled) return;

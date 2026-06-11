@@ -72,7 +72,7 @@ function GmailSection() {
     }
     setConnecting(true);
     const state = crypto.randomUUID().replace(/-/g, "");
-    sessionStorage.setItem("gmail_oauth_state", state);
+    localStorage.setItem("gmail_oauth_state", state);
     try {
       const { authUrl } = await start({
         data: { redirectUri: `${window.location.origin}/oauth/gmail/callback`, state },
