@@ -84,7 +84,7 @@ export function FarmaciaGate({ children }: { children: React.ReactNode }) {
     }
   }, [hasSession, isLoading, isError, data, navigate, qc]);
 
-  if (hasSession !== true || isLoading) {
+  if (hasSession !== true || isLoading || data === null) {
     return (
       <div className="min-h-screen grid place-items-center">
         <Loader2 className="size-6 animate-spin text-muted-foreground" />
