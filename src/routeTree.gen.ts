@@ -16,6 +16,7 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
 import { Route as AuthenticatedImpostazioniRouteImport } from './routes/_authenticated/impostazioni'
 import { Route as AuthenticatedAssistitiRouteImport } from './routes/_authenticated/assistiti'
+import { Route as OauthGmailCallbackRouteImport } from './routes/oauth.gmail.callback'
 import { Route as AuthenticatedAssistitiIdRouteImport } from './routes/_authenticated/assistiti.$id'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
@@ -53,6 +54,11 @@ const AuthenticatedAssistitiRoute = AuthenticatedAssistitiRouteImport.update({
   path: '/assistiti',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const OauthGmailCallbackRoute = OauthGmailCallbackRouteImport.update({
+  id: '/oauth/gmail/callback',
+  path: '/oauth/gmail/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedAssistitiIdRoute =
   AuthenticatedAssistitiIdRouteImport.update({
     id: '/$id',
@@ -68,6 +74,7 @@ export interface FileRoutesByFullPath {
   '/assistiti': typeof AuthenticatedAssistitiRouteWithChildren
   '/impostazioni': typeof AuthenticatedImpostazioniRoute
   '/assistiti/$id': typeof AuthenticatedAssistitiIdRoute
+  '/oauth/gmail/callback': typeof OauthGmailCallbackRoute
 }
 export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
@@ -77,6 +84,7 @@ export interface FileRoutesByTo {
   '/impostazioni': typeof AuthenticatedImpostazioniRoute
   '/': typeof AuthenticatedIndexRoute
   '/assistiti/$id': typeof AuthenticatedAssistitiIdRoute
+  '/oauth/gmail/callback': typeof OauthGmailCallbackRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -88,6 +96,7 @@ export interface FileRoutesById {
   '/_authenticated/impostazioni': typeof AuthenticatedImpostazioniRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
   '/_authenticated/assistiti/$id': typeof AuthenticatedAssistitiIdRoute
+  '/oauth/gmail/callback': typeof OauthGmailCallbackRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -99,6 +108,7 @@ export interface FileRouteTypes {
     | '/assistiti'
     | '/impostazioni'
     | '/assistiti/$id'
+    | '/oauth/gmail/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/auth'
@@ -108,6 +118,7 @@ export interface FileRouteTypes {
     | '/impostazioni'
     | '/'
     | '/assistiti/$id'
+    | '/oauth/gmail/callback'
   id:
     | '__root__'
     | '/_authenticated'
@@ -118,6 +129,7 @@ export interface FileRouteTypes {
     | '/_authenticated/impostazioni'
     | '/_authenticated/'
     | '/_authenticated/assistiti/$id'
+    | '/oauth/gmail/callback'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -125,6 +137,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   RegistraFarmaciaRoute: typeof RegistraFarmaciaRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
+  OauthGmailCallbackRoute: typeof OauthGmailCallbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -178,6 +191,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAssistitiRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/oauth/gmail/callback': {
+      id: '/oauth/gmail/callback'
+      path: '/oauth/gmail/callback'
+      fullPath: '/oauth/gmail/callback'
+      preLoaderRoute: typeof OauthGmailCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/assistiti/$id': {
       id: '/_authenticated/assistiti/$id'
       path: '/$id'
@@ -222,7 +242,18 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   RegistraFarmaciaRoute: RegistraFarmaciaRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
+  OauthGmailCallbackRoute: OauthGmailCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
