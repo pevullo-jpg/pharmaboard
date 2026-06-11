@@ -1,13 +1,14 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Stethoscope, ChevronRight, ChevronDown, Package, RefreshCcw, Loader2 } from "lucide-react";
+import { Stethoscope, ChevronRight, ChevronDown, Package, RefreshCcw, Loader2, Mail, Unlink, CheckCircle2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { reprocessExistingRicette } from "@/lib/gmail.functions";
+import { getGmailConnection, startGmailConnect, disconnectGmail } from "@/lib/gmail-oauth.functions";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { it } from "date-fns/locale";
@@ -24,10 +25,162 @@ function ImpostazioniPage() {
         <h1 className="text-3xl font-semibold tracking-tight">Gestione anticipi</h1>
       </div>
 
+      <GmailSection />
+
       <RielaborazioneSection />
 
       <MediciSection />
     </div>
+  );
+}
+
+function GmailSection() {
+  const qc = useQueryClient();
+  const fetchConn = useServerFn(getGmailConnection);
+  const start = useServerFn(startGmailConnect);
+  const disconnect = useServerFn(disconnectGmail);
+  const [connecting, setConnecting] = useState(false);
+
+  const { data: conn, isLoading } = useQuery({
+    queryKey: ["gmail-connection"],
+    queryFn: () => fetchConn(),
+  });
+
+  // Riceve l'esito dal popup OAuth.
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.origin !== window.location.origin) return;
+      const data = event.data as { type?: string; ok?: boolean; email?: string | null; error?: string | null };
+      if (data?.type !== "gmail-oauth-result") return;
+      setConnecting(false);
+      if (data.ok) {
+        toast.success(`Casella ${data.email ?? "Gmail"} collegata`);
+      } else {
+        toast.error(data.error ?? "Collegamento non riuscito");
+      }
+      qc.invalidateQueries({ queryKey: ["gmail-connection"] });
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [qc]);
+
+  const handleConnect = async () => {
+    const popup = window.open("", "gmail-oauth", "width=600,height=720");
+    if (!popup) {
+      toast.error("Popup bloccato. Consenti i popup e riprova.");
+      return;
+    }
+    setConnecting(true);
+    const state = crypto.randomUUID().replace(/-/g, "");
+    sessionStorage.setItem("gmail_oauth_state", state);
+    try {
+      const { authUrl } = await start({
+        data: { redirectUri: `${window.location.origin}/oauth/gmail/callback`, state },
+      });
+      popup.location.href = authUrl;
+      // Se l'utente chiude il popup senza completare, riabilita il pulsante.
+      const timer = setInterval(() => {
+        if (popup.closed) {
+          clearInterval(timer);
+          setConnecting(false);
+          qc.invalidateQueries({ queryKey: ["gmail-connection"] });
+        }
+      }, 700);
+    } catch (e) {
+      popup.close();
+      setConnecting(false);
+      toast.error(e instanceof Error ? e.message : "Errore di avvio del collegamento");
+    }
+  };
+
+  const disconnectMut = useMutation({
+    mutationFn: () => disconnect(),
+    onSuccess: () => {
+      toast.success("Casella Gmail scollegata");
+      qc.invalidateQueries({ queryKey: ["gmail-connection"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  return (
+    <Card className="glass-card p-6">
+      <div className="flex gap-4">
+        <div className="size-12 rounded-xl bg-accent/15 text-accent grid place-items-center shrink-0">
+          <Mail className="size-6" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="font-semibold">Casella Gmail della farmacia</h2>
+            {conn?.connected && (
+              <Badge className="bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 gap-1">
+                <CheckCircle2 className="size-3" /> Collegata
+              </Badge>
+            )}
+          </div>
+          <p className="text-sm text-muted-foreground mt-1 mb-4">
+            L'app analizza le email con allegato della casella collegata, applica le etichette{" "}
+            <b>Valide</b>, <b>Scartate</b> e <b>Da verificare</b> direttamente in Gmail e importa nel
+            gestionale solo le ricette valide.
+          </p>
+
+          {isLoading && <div className="text-sm text-muted-foreground">Caricamento…</div>}
+
+          {!isLoading && conn && !conn.configured && (
+            <p className="text-sm text-amber-400">
+              Il collegamento Gmail non è ancora configurato dall'amministratore del servizio.
+            </p>
+          )}
+
+          {!isLoading && conn?.configured && conn.connected && (
+            <div className="space-y-3">
+              <div className="text-sm">
+                <span className="text-muted-foreground">Casella: </span>
+                <span className="font-medium">{conn.email ?? "—"}</span>
+              </div>
+              <div className="text-xs text-muted-foreground space-x-3">
+                {conn.connectedAt && (
+                  <span>Collegata il {format(new Date(conn.connectedAt), "d MMM yyyy", { locale: it })}</span>
+                )}
+                {conn.lastSyncAt && (
+                  <span>Ultima sincronizzazione: {format(new Date(conn.lastSyncAt), "d MMM yyyy HH:mm", { locale: it })}</span>
+                )}
+              </div>
+              {conn.isOwner && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  disabled={disconnectMut.isPending}
+                  onClick={() => {
+                    if (window.confirm("Scollegare la casella Gmail? L'importazione automatica si fermerà.")) {
+                      disconnectMut.mutate();
+                    }
+                  }}
+                >
+                  {disconnectMut.isPending ? <Loader2 className="size-4 animate-spin" /> : <Unlink className="size-4" />}
+                  Scollega
+                </Button>
+              )}
+            </div>
+          )}
+
+          {!isLoading && conn?.configured && !conn.connected && (
+            <div className="space-y-3">
+              {conn.isOwner ? (
+                <Button onClick={handleConnect} disabled={connecting} className="gap-2">
+                  {connecting ? <Loader2 className="size-4 animate-spin" /> : <Mail className="size-4" />}
+                  {connecting ? "In attesa dell'autorizzazione…" : "Collega casella Gmail"}
+                </Button>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Solo il titolare della farmacia può collegare la casella Gmail.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </Card>
   );
 }
 
