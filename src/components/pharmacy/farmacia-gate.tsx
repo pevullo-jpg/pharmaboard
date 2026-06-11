@@ -20,9 +20,13 @@ export function FarmaciaGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const { data } = await supabase.auth.getSession();
+      // Validate the token with the auth server — getSession() returns
+      // stale/expired tokens from localStorage, which would then be sent
+      // to protected serverFns and rejected with "Unauthorized".
+      const { data: sessionData } = await supabase.auth.getSession();
+      const { data: userData, error: userErr } = await supabase.auth.getUser();
       if (cancelled) return;
-      if (!data.session) {
+      if (!sessionData.session || userErr || !userData.user) {
         await qc.cancelQueries();
         qc.clear();
         await supabase.auth.signOut();
