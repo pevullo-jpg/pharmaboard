@@ -311,32 +311,6 @@ async function resolveOrCreateAssistito(args: {
   return created?.id ?? null;
 }
 
-function gmailHeaders(extra?: HeadersInit): Headers {
-  const apiKey = process.env.LOVABLE_API_KEY;
-  const connKey = process.env.GOOGLE_MAIL_API_KEY;
-  if (!apiKey) throw new Error("LOVABLE_API_KEY missing");
-  if (!connKey) throw new Error("Gmail della farmacia non collegato. Vai in Connettori e collega Gmail.");
-  const h = new Headers(extra);
-  h.set("Authorization", `Bearer ${apiKey}`);
-  h.set("X-Connection-Api-Key", connKey);
-  return h;
-}
-
-export const getGmailStatus = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async () => {
-    const connected = !!process.env.GOOGLE_MAIL_API_KEY;
-    if (!connected) return { connected: false as const };
-    try {
-      const res = await fetch(`${GATEWAY_URL}/users/me/profile`, { headers: gmailHeaders() });
-      if (!res.ok) return { connected: false as const, error: `HTTP ${res.status}` };
-      const j = (await res.json()) as { emailAddress?: string };
-      return { connected: true as const, email: j.emailAddress ?? null };
-    } catch (e) {
-      return { connected: false as const, error: e instanceof Error ? e.message : "Errore" };
-    }
-  });
-
 // ---------- Open / Delete ----------
 
 export const getRicettaAttachment = createServerFn({ method: "POST" })
@@ -346,17 +320,17 @@ export const getRicettaAttachment = createServerFn({ method: "POST" })
     const { supabase } = context;
     const { data: r, error } = await supabase
       .from("ricette")
-      .select("source_email_id")
+      .select("source_email_id, farmacia_id")
       .eq("id", data.ricettaId)
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!r?.source_email_id) throw new Error("Ricetta senza email collegata");
 
-    const msgRes = await fetch(`${GATEWAY_URL}/users/me/messages/${r.source_email_id}?format=full`, {
-      headers: gmailHeaders(),
-    });
-    if (!msgRes.ok) throw new Error(`Gmail get failed (${msgRes.status})`);
-    const msg = (await msgRes.json()) as GmailMessage;
+    const boxes = await mailboxesForFarmacia(r.farmacia_id);
+    if (boxes.length === 0) throw new Error("Casella Gmail non collegata. Collega Gmail in Impostazioni.");
+    const found = await fetchMessageFull(boxes, r.source_email_id);
+    if (!found) throw new Error("Email non trovata nella casella Gmail");
+    const { box, msg } = found;
 
     const atts = collectAttachmentParts(msg.payload?.parts);
     if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType.toLowerCase().includes("pdf") || msg.payload.mimeType.startsWith("image/") || msg.payload.mimeType === "application/octet-stream")) {
@@ -365,8 +339,8 @@ export const getRicettaAttachment = createServerFn({ method: "POST" })
     const att = atts[0];
     if (!att?.body?.attachmentId) throw new Error("Nessun allegato trovato nell'email");
 
-    const attRes = await fetch(`${GATEWAY_URL}/users/me/messages/${r.source_email_id}/attachments/${att.body.attachmentId}`, {
-      headers: gmailHeaders(),
+    const attRes = await fetch(`${box.base}/users/me/messages/${r.source_email_id}/attachments/${att.body.attachmentId}`, {
+      headers: box.headers(),
     });
     if (!attRes.ok) throw new Error(`Attachment fetch failed (${attRes.status})`);
     const attData = (await attRes.json()) as { data?: string };
@@ -387,19 +361,26 @@ export const deleteRicettaEmail = createServerFn({ method: "POST" })
     const { supabase } = context;
     const { data: r, error } = await supabase
       .from("ricette")
-      .select("source_email_id")
+      .select("source_email_id, farmacia_id")
       .eq("id", data.ricettaId)
       .maybeSingle();
     if (error) throw new Error(error.message);
 
     if (r?.source_email_id) {
-      const trashRes = await fetch(`${GATEWAY_URL}/users/me/messages/${r.source_email_id}/trash`, {
-        method: "POST",
-        headers: gmailHeaders(),
-      });
-      if (!trashRes.ok && trashRes.status !== 404) {
-        const t = await trashRes.text();
-        throw new Error(`Gmail trash failed (${trashRes.status}): ${t.slice(0, 200)}`);
+      const boxes = await mailboxesForFarmacia(r.farmacia_id);
+      let trashed = false;
+      let lastErr: string | null = null;
+      for (const box of boxes) {
+        const trashRes = await fetch(`${box.base}/users/me/messages/${r.source_email_id}/trash`, {
+          method: "POST",
+          headers: box.headers(),
+        });
+        if (trashRes.ok) { trashed = true; break; }
+        if (trashRes.status === 404) continue; // non in questa casella
+        lastErr = `Gmail trash failed (${trashRes.status}): ${(await trashRes.text()).slice(0, 200)}`;
+      }
+      if (!trashed && lastErr) {
+        throw new Error(lastErr);
       }
     }
 
@@ -410,17 +391,17 @@ export const deleteRicettaEmail = createServerFn({ method: "POST" })
 
 // ---------- Merge all PDFs of an assistito ----------
 
-async function fetchFirstAttachmentBytes(emailId: string): Promise<{ bytes: Uint8Array; mimeType: string } | null> {
-  const msgRes = await fetch(`${GATEWAY_URL}/users/me/messages/${emailId}?format=full`, { headers: gmailHeaders() });
-  if (!msgRes.ok) return null;
-  const msg = (await msgRes.json()) as GmailMessage;
+async function fetchFirstAttachmentBytes(boxes: Mailbox[], emailId: string): Promise<{ bytes: Uint8Array; mimeType: string } | null> {
+  const found = await fetchMessageFull(boxes, emailId);
+  if (!found) return null;
+  const { box, msg } = found;
   const atts = collectAttachmentParts(msg.payload?.parts);
   if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType.toLowerCase().includes("pdf") || msg.payload.mimeType.startsWith("image/") || msg.payload.mimeType === "application/octet-stream")) {
     atts.push({ mimeType: msg.payload.mimeType, body: msg.payload.body });
   }
   const att = atts[0];
   if (!att?.body?.attachmentId) return null;
-  const attRes = await fetch(`${GATEWAY_URL}/users/me/messages/${emailId}/attachments/${att.body.attachmentId}`, { headers: gmailHeaders() });
+  const attRes = await fetch(`${box.base}/users/me/messages/${emailId}/attachments/${att.body.attachmentId}`, { headers: box.headers() });
   if (!attRes.ok) return null;
   const j = (await attRes.json()) as { data?: string };
   if (!j.data) return null;
@@ -431,10 +412,10 @@ async function fetchFirstAttachmentBytes(emailId: string): Promise<{ bytes: Uint
   return { bytes, mimeType: att.mimeType ?? "application/octet-stream" };
 }
 
-async function fetchAllAttachmentsBytes(emailId: string): Promise<{ bytes: Uint8Array; mimeType: string }[]> {
-  const msgRes = await fetch(`${GATEWAY_URL}/users/me/messages/${emailId}?format=full`, { headers: gmailHeaders() });
-  if (!msgRes.ok) return [];
-  const msg = (await msgRes.json()) as GmailMessage;
+async function fetchAllAttachmentsBytes(boxes: Mailbox[], emailId: string): Promise<{ bytes: Uint8Array; mimeType: string }[]> {
+  const found = await fetchMessageFull(boxes, emailId);
+  if (!found) return [];
+  const { box, msg } = found;
   const atts = collectAttachmentParts(msg.payload?.parts);
   if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType.toLowerCase().includes("pdf") || msg.payload.mimeType.startsWith("image/") || msg.payload.mimeType === "application/octet-stream")) {
     atts.push({ mimeType: msg.payload.mimeType, body: msg.payload.body });
@@ -442,7 +423,7 @@ async function fetchAllAttachmentsBytes(emailId: string): Promise<{ bytes: Uint8
   const out: { bytes: Uint8Array; mimeType: string }[] = [];
   for (const att of atts) {
     if (!att.body?.attachmentId) continue;
-    const attRes = await fetch(`${GATEWAY_URL}/users/me/messages/${emailId}/attachments/${att.body.attachmentId}`, { headers: gmailHeaders() });
+    const attRes = await fetch(`${box.base}/users/me/messages/${emailId}/attachments/${att.body.attachmentId}`, { headers: box.headers() });
     if (!attRes.ok) continue;
     const j = (await attRes.json()) as { data?: string };
     if (!j.data) continue;
