@@ -1,7 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { useServerFn } from "@tanstack/react-start";
-import { completeGmailConnect } from "@/lib/gmail-oauth.functions";
 import { Loader2, CheckCircle2, XCircle } from "lucide-react";
 
 export const Route = createFileRoute("/oauth/gmail/callback")({
@@ -11,56 +9,48 @@ export const Route = createFileRoute("/oauth/gmail/callback")({
 });
 
 function GmailCallbackPage() {
-  const complete = useServerFn(completeGmailConnect);
   const [status, setStatus] = useState<"working" | "ok" | "error">("working");
   const [message, setMessage] = useState("Completamento del collegamento in corso…");
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const params = new URLSearchParams(window.location.search);
-      const code = params.get("code");
-      const state = params.get("state");
-      const errorParam = params.get("error");
+    // Il popup non condivide la sessione Supabase con l'opener (storage
+    // partizionato), quindi non possiamo chiamare server functions protette
+    // da qui. Inoltriamo code+state alla finestra principale autenticata.
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+    const state = params.get("state");
+    const errorParam = params.get("error");
 
-      const finish = (ok: boolean, msg: string, email?: string | null) => {
-        if (cancelled) return;
-        setStatus(ok ? "ok" : "error");
-        setMessage(msg);
-        if (window.opener) {
-          window.opener.postMessage(
-            { type: "gmail-oauth-result", ok, email: email ?? null, error: ok ? null : msg },
-            window.location.origin,
-          );
-          setTimeout(() => window.close(), ok ? 800 : 4000);
-        }
-      };
-
-      if (errorParam) {
-        finish(false, errorParam === "access_denied" ? "Autorizzazione annullata." : `Errore Google: ${errorParam}`);
-        return;
+    const post = (payload: Record<string, unknown>) => {
+      if (window.opener) {
+        window.opener.postMessage(
+          { type: "gmail-oauth-code", ...payload },
+          window.location.origin,
+        );
       }
-      if (!code) {
-        finish(false, "Codice di autorizzazione mancante.");
-        return;
-      }
-      if (!state) {
-        finish(false, "Verifica di sicurezza fallita. Riprova dalla pagina Impostazioni.");
-        return;
-      }
-
-      try {
-        const redirectUri = `${window.location.origin}/oauth/gmail/callback`;
-        const res = await complete({ data: { code, state, redirectUri } });
-        finish(true, `Casella ${res.email ?? "Gmail"} collegata con successo.`, res.email);
-      } catch (e) {
-        finish(false, e instanceof Error ? e.message : "Errore durante il collegamento.");
-      }
-    })();
-    return () => {
-      cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    if (errorParam) {
+      const msg = errorParam === "access_denied" ? "Autorizzazione annullata." : `Errore Google: ${errorParam}`;
+      setStatus("error");
+      setMessage(msg);
+      post({ ok: false, error: msg });
+      setTimeout(() => window.close(), 2500);
+      return;
+    }
+    if (!code || !state) {
+      const msg = "Verifica di sicurezza fallita. Riprova dalla pagina Impostazioni.";
+      setStatus("error");
+      setMessage(msg);
+      post({ ok: false, error: msg });
+      setTimeout(() => window.close(), 2500);
+      return;
+    }
+
+    setStatus("ok");
+    setMessage("Autorizzazione ricevuta. Completamento in corso…");
+    post({ ok: true, code, state });
+    setTimeout(() => window.close(), 600);
   }, []);
 
   return (
