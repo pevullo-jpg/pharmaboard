@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Stethoscope, ChevronRight, ChevronDown, Package, RefreshCcw, Loader2, Mail, Unlink, CheckCircle2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { reprocessExistingRicette } from "@/lib/gmail.functions";
-import { getGmailConnection, startGmailConnect, disconnectGmail } from "@/lib/gmail-oauth.functions";
+import { getGmailConnection, startGmailConnect, disconnectGmail, completeGmailConnect } from "@/lib/gmail-oauth.functions";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { it } from "date-fns/locale";
@@ -39,6 +39,7 @@ function GmailSection() {
   const fetchConn = useServerFn(getGmailConnection);
   const start = useServerFn(startGmailConnect);
   const disconnect = useServerFn(disconnectGmail);
+  const complete = useServerFn(completeGmailConnect);
   const [connecting, setConnecting] = useState(false);
 
   const { data: conn, isLoading } = useQuery({
@@ -46,23 +47,37 @@ function GmailSection() {
     queryFn: () => fetchConn(),
   });
 
-  // Riceve l'esito dal popup OAuth.
+  // Riceve code+state dal popup OAuth e completa qui (sessione autenticata).
   useEffect(() => {
-    const onMessage = (event: MessageEvent) => {
+    const onMessage = async (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
-      const data = event.data as { type?: string; ok?: boolean; email?: string | null; error?: string | null };
-      if (data?.type !== "gmail-oauth-result") return;
-      setConnecting(false);
-      if (data.ok) {
-        toast.success(`Casella ${data.email ?? "Gmail"} collegata`);
-      } else {
+      const data = event.data as { type?: string; ok?: boolean; code?: string; state?: string; error?: string | null };
+      if (data?.type !== "gmail-oauth-code") return;
+      if (!data.ok || !data.code || !data.state) {
+        setConnecting(false);
         toast.error(data.error ?? "Collegamento non riuscito");
+        qc.invalidateQueries({ queryKey: ["gmail-connection"] });
+        return;
       }
-      qc.invalidateQueries({ queryKey: ["gmail-connection"] });
+      try {
+        const res = await complete({
+          data: {
+            code: data.code,
+            state: data.state,
+            redirectUri: `${window.location.origin}/oauth/gmail/callback`,
+          },
+        });
+        toast.success(`Casella ${res.email ?? "Gmail"} collegata`);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Collegamento non riuscito");
+      } finally {
+        setConnecting(false);
+        qc.invalidateQueries({ queryKey: ["gmail-connection"] });
+      }
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [qc]);
+  }, [qc, complete]);
 
   const handleConnect = async () => {
     const popup = window.open("", "gmail-oauth", "width=600,height=720");
