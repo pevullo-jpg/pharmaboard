@@ -1230,7 +1230,16 @@ const LABEL_VERIFICA = "Da verificare";
 /** Crea (se mancanti) le etichette Valide / Scartate / Da verificare e ne torna gli ID. */
 async function ensureLabels(box: Mailbox): Promise<Record<string, string>> {
   const res = await fetch(`${box.base}/users/me/labels`, { headers: box.headers() });
-  if (!res.ok) throw new Error(`Gmail labels list failed (${res.status})`);
+  if (!res.ok) {
+    const body = await res.text();
+    console.error("Gmail labels list failed", res.status, body.slice(0, 500));
+    if (res.status === 403) {
+      throw new Error(
+        "Google ha rifiutato l'accesso a Gmail (403). Verifica che l'API Gmail sia abilitata nel progetto Google Cloud usato per le credenziali OAuth e che durante l'autorizzazione tu abbia spuntato il permesso di leggere e gestire la casella.",
+      );
+    }
+    throw new Error(`Gmail labels list failed (${res.status}): ${body.slice(0, 200)}`);
+  }
   const j = (await res.json()) as { labels?: { id: string; name: string }[] };
   const existing = new Map((j.labels ?? []).map((l) => [l.name.trim().toLowerCase(), l.id]));
   const out: Record<string, string> = {};
