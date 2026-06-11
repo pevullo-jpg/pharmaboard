@@ -18,6 +18,7 @@ async function getMembership(context: Ctx): Promise<{ farmaciaId: string; isOwne
     .from("farmacia_members")
     .select("farmacia_id, ruolo")
     .eq("user_id", context.userId)
+    .limit(1)
     .maybeSingle();
   if (!data?.farmacia_id) throw new Error("Nessuna farmacia associata all'utente");
   return { farmaciaId: data.farmacia_id as string, isOwner: data.ruolo === "owner" };
