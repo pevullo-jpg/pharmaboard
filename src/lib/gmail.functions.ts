@@ -465,7 +465,7 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
     // Carica l'assistito: il codice fiscale è la discriminante assoluta per fondere le ricette.
     const { data: ass, error: aErr } = await supabase
       .from("assistiti")
-      .select("id, nome, cognome, codice_fiscale")
+      .select("id, nome, cognome, codice_fiscale, farmacia_id")
       .eq("id", data.assistitoId)
       .maybeSingle();
     if (aErr) throw new Error(aErr.message);
@@ -474,6 +474,8 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
     if (!assCf || assCf.length !== 16) {
       throw new Error("L'assistito non ha un codice fiscale valido: impossibile fondere le ricette");
     }
+    const boxes = await mailboxesForFarmacia(ass.farmacia_id);
+    if (boxes.length === 0) throw new Error("Casella Gmail non collegata. Collega Gmail in Impostazioni.");
 
     // Linked ricette
     const { data: linked, error: lErr } = await supabase
@@ -502,7 +504,7 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
       if (cf.length !== 16 && r.source_email_id) {
         // Ultimo tentativo: ri-scarica l'allegato e prova il parser deterministico.
         try {
-          const att = await fetchFirstAttachmentBytes(r.source_email_id);
+          const att = await fetchFirstAttachmentBytes(boxes, r.source_email_id);
           if (att && (looksLikePdf(att.bytes) || att.mimeType.toLowerCase().includes("pdf"))) {
             const { parsePdfRicetta } = await import("./ricette-parser.server");
             const det = await parsePdfRicetta(att.bytes);
@@ -586,7 +588,7 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
     // volta per NRE. La sintesi entra al massimo una volta.
     for (const emailId of orderedEmails) {
       try {
-        const atts = await fetchAllAttachmentsBytes(emailId);
+        const atts = await fetchAllAttachmentsBytes(boxes, emailId);
         if (atts.length === 0) { errors.push(`Email ${emailId}: nessun allegato`); continue; }
         for (const att of atts) {
           try {
@@ -1104,11 +1106,18 @@ export const reprocessExistingRicette = createServerFn({ method: "POST" })
 
     // Cache per evitare di riscaricare lo stesso allegato più volte.
     const seenNre = new Map<string, string>(); // key = `${farmacia_id}|${nre}` → ricetta id
+    // Caselle Gmail per farmacia (propria + fallback hub legacy).
+    const boxCache = new Map<string, Mailbox[]>();
 
     for (const r of rows ?? []) {
       processed++;
       try {
-        const att = await fetchFirstAttachmentBytes(r.source_email_id!);
+        let boxes = boxCache.get(r.farmacia_id);
+        if (!boxes) {
+          boxes = await mailboxesForFarmacia(r.farmacia_id);
+          boxCache.set(r.farmacia_id, boxes);
+        }
+        const att = await fetchFirstAttachmentBytes(boxes, r.source_email_id!);
         if (!att) { failed++; continue; }
         const base64 = uint8ToBase64(att.bytes);
         const ext = await extractDocumentFromAttachment(base64, att.mimeType);
