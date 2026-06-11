@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
@@ -7,10 +7,11 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { CalendarClock, FileText, AlertTriangle, Euro, Mail, Loader2, ExternalLink, Trash2, ShieldCheck, CheckCircle2, PauseCircle, XCircle, Building2, Database, Clock, AlertOctagon } from "lucide-react";
+import { CalendarClock, FileText, AlertTriangle, Euro, Mail, Loader2, ExternalLink, Trash2, ShieldCheck, CheckCircle2, PauseCircle, XCircle, Building2, Database, Clock, AlertOctagon, MailWarning } from "lucide-react";
 import { format, differenceInCalendarDays } from "date-fns";
 import { it } from "date-fns/locale";
-import { syncGmailRicette, getRicettaAttachment, deleteRicettaEmail } from "@/lib/gmail.functions";
+import { syncFarmaciaGmail, getRicettaAttachment, deleteRicettaEmail } from "@/lib/gmail.functions";
+import { getGmailConnection } from "@/lib/gmail-oauth.functions";
 import { getMyFarmacia, listAllFarmacie, setFarmaciaStato, setFarmaciaDataStop } from "@/lib/farmacie.functions";
 import { toast } from "sonner";
 import { DebitiBadge } from "@/components/pharmacy/debiti-badge";
@@ -18,7 +19,7 @@ import { AnticipiBadge } from "@/components/pharmacy/anticipi-badge";
 import { PrenotazioniBadge } from "@/components/pharmacy/prenotazioni-badge";
 import { RicetteBadge } from "@/components/pharmacy/ricette-badge";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export const Route = createFileRoute("/_authenticated/")({
   head: () => ({ meta: [{ title: "Dashboard · Farmacia Dashboard" }] }),
@@ -241,18 +242,43 @@ function StatoBadge({ stato }: { stato: string }) {
 
 function FarmaciaDashboard() {
   const qc = useQueryClient();
-  const sync = useServerFn(syncGmailRicette);
+  const sync = useServerFn(syncFarmaciaGmail);
+  const fetchConn = useServerFn(getGmailConnection);
   const openAtt = useServerFn(getRicettaAttachment);
   const delEmail = useServerFn(deleteRicettaEmail);
   const [filter, setFilter] = useState<"all" | "prenotazioni" | "ricette" | "dpc" | "debiti">("all");
+  const { data: gmailConn } = useQuery({
+    queryKey: ["gmail-connection"],
+    queryFn: () => fetchConn(),
+    staleTime: 60_000,
+  });
   const syncMutation = useMutation({
     mutationFn: async () => sync(),
     onSuccess: (r) => {
-      toast.success(`Sync completata: ${r.importedRicette} nuove ricette su ${r.checked} email`);
+      if (!r.connected) {
+        toast.info("Collega la casella Gmail della farmacia in Impostazioni per importare le ricette.");
+        return;
+      }
+      toast.success(
+        `Sync: ${r.checked} email analizzate · ${r.valide} valide · ${r.daVerificare} da verificare · ${r.scartate} scartate · ${r.imported} nuove ricette`,
+      );
       qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      qc.invalidateQueries({ queryKey: ["gmail-connection"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  // Sync automatica all'apertura della dashboard (se l'ultima è più vecchia di 5 minuti).
+  const autoSyncDone = useRef(false);
+  useEffect(() => {
+    if (autoSyncDone.current || !gmailConn?.connected) return;
+    autoSyncDone.current = true;
+    const last = gmailConn.lastSyncAt ? new Date(gmailConn.lastSyncAt).getTime() : 0;
+    if (Date.now() - last > 5 * 60_000) {
+      syncMutation.mutate();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gmailConn]);
 
   const openMutation = useMutation({
     mutationFn: async (ricettaId: string) => openAtt({ data: { ricettaId } }),
@@ -392,13 +418,30 @@ function FarmaciaDashboard() {
         </div>
         <Button
           onClick={() => syncMutation.mutate()}
-          disabled={syncMutation.isPending}
+          disabled={syncMutation.isPending || (gmailConn ? !gmailConn.connected : false)}
           className="gap-2"
         >
           {syncMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <Mail className="size-4" />}
-          Sincronizza Gmail
+          {syncMutation.isPending ? "Sincronizzazione…" : "Sincronizza Gmail"}
         </Button>
       </div>
+
+      {gmailConn && !gmailConn.connected && (
+        <Card className="glass-card p-4 border-amber-500/40 bg-amber-500/10">
+          <div className="flex items-center gap-3 flex-wrap">
+            <MailWarning className="size-5 text-amber-400 shrink-0" />
+            <div className="flex-1 min-w-0 text-sm">
+              <span className="font-medium">Casella Gmail non collegata.</span>{" "}
+              <span className="text-muted-foreground">
+                Collega la casella della farmacia per importare automaticamente le ricette.
+              </span>
+            </div>
+            <Button asChild size="sm" variant="outline">
+              <Link to="/impostazioni">Vai alle impostazioni</Link>
+            </Button>
+          </div>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Prenotazioni attive" value={isLoading ? "…" : data!.prenotazioni} icon={CalendarClock} hint="In attesa o pronte" tone="secondary" neonColor="yellow" active={filter === "prenotazioni"} onClick={() => toggle("prenotazioni")} />

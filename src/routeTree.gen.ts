@@ -16,9 +16,8 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
 import { Route as AuthenticatedImpostazioniRouteImport } from './routes/_authenticated/impostazioni'
 import { Route as AuthenticatedAssistitiRouteImport } from './routes/_authenticated/assistiti'
+import { Route as OauthGmailCallbackRouteImport } from './routes/oauth.gmail.callback'
 import { Route as AuthenticatedAssistitiIdRouteImport } from './routes/_authenticated/assistiti.$id'
-import { Route as AuthenticatedAdminEmailPendingRouteImport } from './routes/_authenticated/admin.email-pending'
-import { Route as ApiPublicHooksSyncInboundHubRouteImport } from './routes/api/public/hooks/sync-inbound-hub'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
@@ -55,23 +54,16 @@ const AuthenticatedAssistitiRoute = AuthenticatedAssistitiRouteImport.update({
   path: '/assistiti',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const OauthGmailCallbackRoute = OauthGmailCallbackRouteImport.update({
+  id: '/oauth/gmail/callback',
+  path: '/oauth/gmail/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedAssistitiIdRoute =
   AuthenticatedAssistitiIdRouteImport.update({
     id: '/$id',
     path: '/$id',
     getParentRoute: () => AuthenticatedAssistitiRoute,
-  } as any)
-const AuthenticatedAdminEmailPendingRoute =
-  AuthenticatedAdminEmailPendingRouteImport.update({
-    id: '/admin/email-pending',
-    path: '/admin/email-pending',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const ApiPublicHooksSyncInboundHubRoute =
-  ApiPublicHooksSyncInboundHubRouteImport.update({
-    id: '/api/public/hooks/sync-inbound-hub',
-    path: '/api/public/hooks/sync-inbound-hub',
-    getParentRoute: () => rootRouteImport,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -81,9 +73,8 @@ export interface FileRoutesByFullPath {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/assistiti': typeof AuthenticatedAssistitiRouteWithChildren
   '/impostazioni': typeof AuthenticatedImpostazioniRoute
-  '/admin/email-pending': typeof AuthenticatedAdminEmailPendingRoute
   '/assistiti/$id': typeof AuthenticatedAssistitiIdRoute
-  '/api/public/hooks/sync-inbound-hub': typeof ApiPublicHooksSyncInboundHubRoute
+  '/oauth/gmail/callback': typeof OauthGmailCallbackRoute
 }
 export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
@@ -92,9 +83,8 @@ export interface FileRoutesByTo {
   '/assistiti': typeof AuthenticatedAssistitiRouteWithChildren
   '/impostazioni': typeof AuthenticatedImpostazioniRoute
   '/': typeof AuthenticatedIndexRoute
-  '/admin/email-pending': typeof AuthenticatedAdminEmailPendingRoute
   '/assistiti/$id': typeof AuthenticatedAssistitiIdRoute
-  '/api/public/hooks/sync-inbound-hub': typeof ApiPublicHooksSyncInboundHubRoute
+  '/oauth/gmail/callback': typeof OauthGmailCallbackRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -105,9 +95,8 @@ export interface FileRoutesById {
   '/_authenticated/assistiti': typeof AuthenticatedAssistitiRouteWithChildren
   '/_authenticated/impostazioni': typeof AuthenticatedImpostazioniRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
-  '/_authenticated/admin/email-pending': typeof AuthenticatedAdminEmailPendingRoute
   '/_authenticated/assistiti/$id': typeof AuthenticatedAssistitiIdRoute
-  '/api/public/hooks/sync-inbound-hub': typeof ApiPublicHooksSyncInboundHubRoute
+  '/oauth/gmail/callback': typeof OauthGmailCallbackRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -118,9 +107,8 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/assistiti'
     | '/impostazioni'
-    | '/admin/email-pending'
     | '/assistiti/$id'
-    | '/api/public/hooks/sync-inbound-hub'
+    | '/oauth/gmail/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/auth'
@@ -129,9 +117,8 @@ export interface FileRouteTypes {
     | '/assistiti'
     | '/impostazioni'
     | '/'
-    | '/admin/email-pending'
     | '/assistiti/$id'
-    | '/api/public/hooks/sync-inbound-hub'
+    | '/oauth/gmail/callback'
   id:
     | '__root__'
     | '/_authenticated'
@@ -141,9 +128,8 @@ export interface FileRouteTypes {
     | '/_authenticated/assistiti'
     | '/_authenticated/impostazioni'
     | '/_authenticated/'
-    | '/_authenticated/admin/email-pending'
     | '/_authenticated/assistiti/$id'
-    | '/api/public/hooks/sync-inbound-hub'
+    | '/oauth/gmail/callback'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -151,7 +137,7 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   RegistraFarmaciaRoute: typeof RegistraFarmaciaRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
-  ApiPublicHooksSyncInboundHubRoute: typeof ApiPublicHooksSyncInboundHubRoute
+  OauthGmailCallbackRoute: typeof OauthGmailCallbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -205,26 +191,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAssistitiRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/oauth/gmail/callback': {
+      id: '/oauth/gmail/callback'
+      path: '/oauth/gmail/callback'
+      fullPath: '/oauth/gmail/callback'
+      preLoaderRoute: typeof OauthGmailCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/assistiti/$id': {
       id: '/_authenticated/assistiti/$id'
       path: '/$id'
       fullPath: '/assistiti/$id'
       preLoaderRoute: typeof AuthenticatedAssistitiIdRouteImport
       parentRoute: typeof AuthenticatedAssistitiRoute
-    }
-    '/_authenticated/admin/email-pending': {
-      id: '/_authenticated/admin/email-pending'
-      path: '/admin/email-pending'
-      fullPath: '/admin/email-pending'
-      preLoaderRoute: typeof AuthenticatedAdminEmailPendingRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/api/public/hooks/sync-inbound-hub': {
-      id: '/api/public/hooks/sync-inbound-hub'
-      path: '/api/public/hooks/sync-inbound-hub'
-      fullPath: '/api/public/hooks/sync-inbound-hub'
-      preLoaderRoute: typeof ApiPublicHooksSyncInboundHubRouteImport
-      parentRoute: typeof rootRouteImport
     }
   }
 }
@@ -247,14 +226,12 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAssistitiRoute: typeof AuthenticatedAssistitiRouteWithChildren
   AuthenticatedImpostazioniRoute: typeof AuthenticatedImpostazioniRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
-  AuthenticatedAdminEmailPendingRoute: typeof AuthenticatedAdminEmailPendingRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAssistitiRoute: AuthenticatedAssistitiRouteWithChildren,
   AuthenticatedImpostazioniRoute: AuthenticatedImpostazioniRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
-  AuthenticatedAdminEmailPendingRoute: AuthenticatedAdminEmailPendingRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
@@ -265,7 +242,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   RegistraFarmaciaRoute: RegistraFarmaciaRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
-  ApiPublicHooksSyncInboundHubRoute: ApiPublicHooksSyncInboundHubRoute,
+  OauthGmailCallbackRoute: OauthGmailCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

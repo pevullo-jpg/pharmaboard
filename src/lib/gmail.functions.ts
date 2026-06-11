@@ -2,7 +2,122 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-const GATEWAY_URL = "https://connector-gateway.lovable.dev/google_mail/gmail/v1";
+const GMAIL_API = "https://gmail.googleapis.com/gmail/v1";
+// Vecchio account hub (connector workspace): tenuto SOLO come fallback in
+// lettura per aprire gli allegati delle ricette importate prima della
+// migrazione al Gmail personale di ogni farmacia.
+const HUB_GATEWAY_URL = "https://connector-gateway.lovable.dev/google_mail/gmail/v1";
+
+// ---------- Accesso alla casella Gmail della farmacia ----------
+
+type Mailbox = { base: string; headers: (extra?: HeadersInit) => Headers };
+
+const accessTokenCache = new Map<string, { token: string; expiresAt: number }>();
+
+/**
+ * Scambia il refresh token della farmacia con un access token Google.
+ * Torna null se la farmacia non ha collegato la propria casella.
+ */
+async function getFarmaciaAccessToken(farmaciaId: string): Promise<string | null> {
+  const cached = accessTokenCache.get(farmaciaId);
+  if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token;
+
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: row } = await supabaseAdmin
+    .from("farmacia_gmail_tokens")
+    .select("refresh_token")
+    .eq("farmacia_id", farmaciaId)
+    .maybeSingle();
+  if (!row?.refresh_token) return null;
+
+  const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    throw new Error("Credenziali Google OAuth non configurate (GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET)");
+  }
+
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: "refresh_token",
+      refresh_token: row.refresh_token,
+    }),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    console.error("Gmail token refresh failed", farmaciaId, res.status, t.slice(0, 200));
+    if (res.status === 400 || res.status === 401) {
+      throw new Error("Autorizzazione Gmail scaduta o revocata: ricollega la casella in Impostazioni");
+    }
+    throw new Error("Errore di autorizzazione Gmail");
+  }
+  const j = (await res.json()) as { access_token?: string; expires_in?: number };
+  if (!j.access_token) return null;
+  accessTokenCache.set(farmaciaId, {
+    token: j.access_token,
+    expiresAt: Date.now() + (j.expires_in ?? 3600) * 1000,
+  });
+  return j.access_token;
+}
+
+/** Casella Gmail personale della farmacia (null se non collegata). */
+async function getFarmaciaMailbox(farmaciaId: string): Promise<Mailbox | null> {
+  const token = await getFarmaciaAccessToken(farmaciaId);
+  if (!token) return null;
+  return {
+    base: GMAIL_API,
+    headers: (extra?: HeadersInit) => {
+      const h = new Headers(extra);
+      h.set("Authorization", `Bearer ${token}`);
+      return h;
+    },
+  };
+}
+
+/** Vecchia casella hub via connector (solo lettura legacy). */
+function hubMailbox(): Mailbox | null {
+  const apiKey = process.env.LOVABLE_API_KEY;
+  const connKey = process.env.GOOGLE_MAIL_API_KEY;
+  if (!apiKey || !connKey) return null;
+  return {
+    base: HUB_GATEWAY_URL,
+    headers: (extra?: HeadersInit) => {
+      const h = new Headers(extra);
+      h.set("Authorization", `Bearer ${apiKey}`);
+      h.set("X-Connection-Api-Key", connKey);
+      return h;
+    },
+  };
+}
+
+/**
+ * Caselle in cui cercare i messaggi di una farmacia: prima la propria,
+ * poi (fallback) la vecchia casella hub per le email importate in passato.
+ */
+async function mailboxesForFarmacia(farmaciaId: string): Promise<Mailbox[]> {
+  const out: Mailbox[] = [];
+  const own = await getFarmaciaMailbox(farmaciaId);
+  if (own) out.push(own);
+  const hub = hubMailbox();
+  if (hub) out.push(hub);
+  return out;
+}
+
+/** Scarica un messaggio completo provando le caselle in ordine. */
+async function fetchMessageFull(boxes: Mailbox[], emailId: string): Promise<{ box: Mailbox; msg: GmailMessage } | null> {
+  for (const box of boxes) {
+    try {
+      const res = await fetch(`${box.base}/users/me/messages/${emailId}?format=full`, { headers: box.headers() });
+      if (res.ok) return { box, msg: (await res.json()) as GmailMessage };
+    } catch (e) {
+      console.warn("fetchMessageFull failed on mailbox", e instanceof Error ? e.message : e);
+    }
+  }
+  return null;
+}
 
 // ---------- Codice fiscale: validazione formale + checksum ----------
 const CF_REGEX = /^[A-Z]{6}[0-9LMNPQRSTUV]{2}[A-Z][0-9LMNPQRSTUV]{2}[A-Z][0-9LMNPQRSTUV]{3}[A-Z]$/;
@@ -196,32 +311,6 @@ async function resolveOrCreateAssistito(args: {
   return created?.id ?? null;
 }
 
-function gmailHeaders(extra?: HeadersInit): Headers {
-  const apiKey = process.env.LOVABLE_API_KEY;
-  const connKey = process.env.GOOGLE_MAIL_API_KEY;
-  if (!apiKey) throw new Error("LOVABLE_API_KEY missing");
-  if (!connKey) throw new Error("Gmail della farmacia non collegato. Vai in Connettori e collega Gmail.");
-  const h = new Headers(extra);
-  h.set("Authorization", `Bearer ${apiKey}`);
-  h.set("X-Connection-Api-Key", connKey);
-  return h;
-}
-
-export const getGmailStatus = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
-  .handler(async () => {
-    const connected = !!process.env.GOOGLE_MAIL_API_KEY;
-    if (!connected) return { connected: false as const };
-    try {
-      const res = await fetch(`${GATEWAY_URL}/users/me/profile`, { headers: gmailHeaders() });
-      if (!res.ok) return { connected: false as const, error: `HTTP ${res.status}` };
-      const j = (await res.json()) as { emailAddress?: string };
-      return { connected: true as const, email: j.emailAddress ?? null };
-    } catch (e) {
-      return { connected: false as const, error: e instanceof Error ? e.message : "Errore" };
-    }
-  });
-
 // ---------- Open / Delete ----------
 
 export const getRicettaAttachment = createServerFn({ method: "POST" })
@@ -231,17 +320,17 @@ export const getRicettaAttachment = createServerFn({ method: "POST" })
     const { supabase } = context;
     const { data: r, error } = await supabase
       .from("ricette")
-      .select("source_email_id")
+      .select("source_email_id, farmacia_id")
       .eq("id", data.ricettaId)
       .maybeSingle();
     if (error) throw new Error(error.message);
     if (!r?.source_email_id) throw new Error("Ricetta senza email collegata");
 
-    const msgRes = await fetch(`${GATEWAY_URL}/users/me/messages/${r.source_email_id}?format=full`, {
-      headers: gmailHeaders(),
-    });
-    if (!msgRes.ok) throw new Error(`Gmail get failed (${msgRes.status})`);
-    const msg = (await msgRes.json()) as GmailMessage;
+    const boxes = await mailboxesForFarmacia(r.farmacia_id);
+    if (boxes.length === 0) throw new Error("Casella Gmail non collegata. Collega Gmail in Impostazioni.");
+    const found = await fetchMessageFull(boxes, r.source_email_id);
+    if (!found) throw new Error("Email non trovata nella casella Gmail");
+    const { box, msg } = found;
 
     const atts = collectAttachmentParts(msg.payload?.parts);
     if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType.toLowerCase().includes("pdf") || msg.payload.mimeType.startsWith("image/") || msg.payload.mimeType === "application/octet-stream")) {
@@ -250,8 +339,8 @@ export const getRicettaAttachment = createServerFn({ method: "POST" })
     const att = atts[0];
     if (!att?.body?.attachmentId) throw new Error("Nessun allegato trovato nell'email");
 
-    const attRes = await fetch(`${GATEWAY_URL}/users/me/messages/${r.source_email_id}/attachments/${att.body.attachmentId}`, {
-      headers: gmailHeaders(),
+    const attRes = await fetch(`${box.base}/users/me/messages/${r.source_email_id}/attachments/${att.body.attachmentId}`, {
+      headers: box.headers(),
     });
     if (!attRes.ok) throw new Error(`Attachment fetch failed (${attRes.status})`);
     const attData = (await attRes.json()) as { data?: string };
@@ -272,19 +361,26 @@ export const deleteRicettaEmail = createServerFn({ method: "POST" })
     const { supabase } = context;
     const { data: r, error } = await supabase
       .from("ricette")
-      .select("source_email_id")
+      .select("source_email_id, farmacia_id")
       .eq("id", data.ricettaId)
       .maybeSingle();
     if (error) throw new Error(error.message);
 
     if (r?.source_email_id) {
-      const trashRes = await fetch(`${GATEWAY_URL}/users/me/messages/${r.source_email_id}/trash`, {
-        method: "POST",
-        headers: gmailHeaders(),
-      });
-      if (!trashRes.ok && trashRes.status !== 404) {
-        const t = await trashRes.text();
-        throw new Error(`Gmail trash failed (${trashRes.status}): ${t.slice(0, 200)}`);
+      const boxes = await mailboxesForFarmacia(r.farmacia_id);
+      let trashed = false;
+      let lastErr: string | null = null;
+      for (const box of boxes) {
+        const trashRes = await fetch(`${box.base}/users/me/messages/${r.source_email_id}/trash`, {
+          method: "POST",
+          headers: box.headers(),
+        });
+        if (trashRes.ok) { trashed = true; break; }
+        if (trashRes.status === 404) continue; // non in questa casella
+        lastErr = `Gmail trash failed (${trashRes.status}): ${(await trashRes.text()).slice(0, 200)}`;
+      }
+      if (!trashed && lastErr) {
+        throw new Error(lastErr);
       }
     }
 
@@ -295,17 +391,17 @@ export const deleteRicettaEmail = createServerFn({ method: "POST" })
 
 // ---------- Merge all PDFs of an assistito ----------
 
-async function fetchFirstAttachmentBytes(emailId: string): Promise<{ bytes: Uint8Array; mimeType: string } | null> {
-  const msgRes = await fetch(`${GATEWAY_URL}/users/me/messages/${emailId}?format=full`, { headers: gmailHeaders() });
-  if (!msgRes.ok) return null;
-  const msg = (await msgRes.json()) as GmailMessage;
+async function fetchFirstAttachmentBytes(boxes: Mailbox[], emailId: string): Promise<{ bytes: Uint8Array; mimeType: string } | null> {
+  const found = await fetchMessageFull(boxes, emailId);
+  if (!found) return null;
+  const { box, msg } = found;
   const atts = collectAttachmentParts(msg.payload?.parts);
   if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType.toLowerCase().includes("pdf") || msg.payload.mimeType.startsWith("image/") || msg.payload.mimeType === "application/octet-stream")) {
     atts.push({ mimeType: msg.payload.mimeType, body: msg.payload.body });
   }
   const att = atts[0];
   if (!att?.body?.attachmentId) return null;
-  const attRes = await fetch(`${GATEWAY_URL}/users/me/messages/${emailId}/attachments/${att.body.attachmentId}`, { headers: gmailHeaders() });
+  const attRes = await fetch(`${box.base}/users/me/messages/${emailId}/attachments/${att.body.attachmentId}`, { headers: box.headers() });
   if (!attRes.ok) return null;
   const j = (await attRes.json()) as { data?: string };
   if (!j.data) return null;
@@ -316,10 +412,10 @@ async function fetchFirstAttachmentBytes(emailId: string): Promise<{ bytes: Uint
   return { bytes, mimeType: att.mimeType ?? "application/octet-stream" };
 }
 
-async function fetchAllAttachmentsBytes(emailId: string): Promise<{ bytes: Uint8Array; mimeType: string }[]> {
-  const msgRes = await fetch(`${GATEWAY_URL}/users/me/messages/${emailId}?format=full`, { headers: gmailHeaders() });
-  if (!msgRes.ok) return [];
-  const msg = (await msgRes.json()) as GmailMessage;
+async function fetchAllAttachmentsBytes(boxes: Mailbox[], emailId: string): Promise<{ bytes: Uint8Array; mimeType: string }[]> {
+  const found = await fetchMessageFull(boxes, emailId);
+  if (!found) return [];
+  const { box, msg } = found;
   const atts = collectAttachmentParts(msg.payload?.parts);
   if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType.toLowerCase().includes("pdf") || msg.payload.mimeType.startsWith("image/") || msg.payload.mimeType === "application/octet-stream")) {
     atts.push({ mimeType: msg.payload.mimeType, body: msg.payload.body });
@@ -327,7 +423,7 @@ async function fetchAllAttachmentsBytes(emailId: string): Promise<{ bytes: Uint8
   const out: { bytes: Uint8Array; mimeType: string }[] = [];
   for (const att of atts) {
     if (!att.body?.attachmentId) continue;
-    const attRes = await fetch(`${GATEWAY_URL}/users/me/messages/${emailId}/attachments/${att.body.attachmentId}`, { headers: gmailHeaders() });
+    const attRes = await fetch(`${box.base}/users/me/messages/${emailId}/attachments/${att.body.attachmentId}`, { headers: box.headers() });
     if (!attRes.ok) continue;
     const j = (await attRes.json()) as { data?: string };
     if (!j.data) continue;
@@ -369,7 +465,7 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
     // Carica l'assistito: il codice fiscale è la discriminante assoluta per fondere le ricette.
     const { data: ass, error: aErr } = await supabase
       .from("assistiti")
-      .select("id, nome, cognome, codice_fiscale")
+      .select("id, nome, cognome, codice_fiscale, farmacia_id")
       .eq("id", data.assistitoId)
       .maybeSingle();
     if (aErr) throw new Error(aErr.message);
@@ -378,6 +474,8 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
     if (!assCf || assCf.length !== 16) {
       throw new Error("L'assistito non ha un codice fiscale valido: impossibile fondere le ricette");
     }
+    const boxes = await mailboxesForFarmacia(ass.farmacia_id);
+    if (boxes.length === 0) throw new Error("Casella Gmail non collegata. Collega Gmail in Impostazioni.");
 
     // Linked ricette
     const { data: linked, error: lErr } = await supabase
@@ -406,7 +504,7 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
       if (cf.length !== 16 && r.source_email_id) {
         // Ultimo tentativo: ri-scarica l'allegato e prova il parser deterministico.
         try {
-          const att = await fetchFirstAttachmentBytes(r.source_email_id);
+          const att = await fetchFirstAttachmentBytes(boxes, r.source_email_id);
           if (att && (looksLikePdf(att.bytes) || att.mimeType.toLowerCase().includes("pdf"))) {
             const { parsePdfRicetta } = await import("./ricette-parser.server");
             const det = await parsePdfRicetta(att.bytes);
@@ -490,7 +588,7 @@ export const getAssistitoMergedPdf = createServerFn({ method: "POST" })
     // volta per NRE. La sintesi entra al massimo una volta.
     for (const emailId of orderedEmails) {
       try {
-        const atts = await fetchAllAttachmentsBytes(emailId);
+        const atts = await fetchAllAttachmentsBytes(boxes, emailId);
         if (atts.length === 0) { errors.push(`Email ${emailId}: nessun allegato`); continue; }
         for (const att of atts) {
           try {
@@ -965,12 +1063,6 @@ async function callAIExtraction(apiKey: string, prompt: string, base64: string, 
   }
 }
 
-export const syncGmailRicette = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .handler(async () => {
-    return await runHubSync();
-  });
-
 /**
  * Rielabora con il classificatore aggiornato tutte le ricette già importate
  * dalla farmacia corrente (o tutte se super admin).
@@ -1008,11 +1100,18 @@ export const reprocessExistingRicette = createServerFn({ method: "POST" })
 
     // Cache per evitare di riscaricare lo stesso allegato più volte.
     const seenNre = new Map<string, string>(); // key = `${farmacia_id}|${nre}` → ricetta id
+    // Caselle Gmail per farmacia (propria + fallback hub legacy).
+    const boxCache = new Map<string, Mailbox[]>();
 
     for (const r of rows ?? []) {
       processed++;
       try {
-        const att = await fetchFirstAttachmentBytes(r.source_email_id!);
+        let boxes = boxCache.get(r.farmacia_id);
+        if (!boxes) {
+          boxes = await mailboxesForFarmacia(r.farmacia_id);
+          boxCache.set(r.farmacia_id, boxes);
+        }
+        const att = await fetchFirstAttachmentBytes(boxes, r.source_email_id!);
         if (!att) { failed++; continue; }
         const base64 = uint8ToBase64(att.bytes);
         const ext = await extractDocumentFromAttachment(base64, att.mimeType);
@@ -1122,302 +1221,282 @@ export const reprocessExistingRicette = createServerFn({ method: "POST" })
     return { processed, updated, removedAltro, removedDup, failed };
   });
 
-/**
- * Sync the central hub Gmail inbox (es. ilfarmacista.info@gmail.com).
- * Per ogni email letta, estrae l'alias dal `To:` ("+farmaciaXXXX") e
- * indirizza la ricetta alla farmacia corrispondente.
- * Usa il client admin: bypassa RLS perché smista tra più tenant.
- */
-export async function runHubSync(): Promise<{
-  ok: true;
-  checked: number;
-  processedMessages: number;
-  importedRicette: number;
-  skipped: number;
-  unmatched: number;
-}> {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+// ---------- Sync della casella Gmail della farmacia ----------
 
-  // Solo email NON LETTE con allegato negli ultimi 30 giorni: una volta
-  // esaminate (valide o meno) vengono marcate come lette così non vengono
-  // più riprocessate.
-  const query = encodeURIComponent("is:unread has:attachment newer_than:30d (ricetta OR prescrizione OR DPC)");
-  const listRes = await fetch(`${GATEWAY_URL}/users/me/messages?maxResults=50&q=${query}`, {
-    headers: gmailHeaders(),
-  });
-  if (!listRes.ok) {
-    const t = await listRes.text();
-    throw new Error(`Gmail list failed (${listRes.status}): ${t.slice(0, 200)}`);
-  }
-  const list = (await listRes.json()) as { messages?: GmailMessageMeta[] };
-  const messages = list.messages ?? [];
+const LABEL_VALIDE = "Valide";
+const LABEL_SCARTATE = "Scartate";
+const LABEL_VERIFICA = "Da verificare";
 
-  let processedMessages = 0;
-  let importedRicette = 0;
-  let skipped = 0;
-  let unmatched = 0;
-
-  // Carica le farmacie con email di inoltro registrata per il routing.
-  const { data: farmacie } = await supabaseAdmin
-    .from("farmacie")
-    .select("id, email_inoltro, stato");
-  const senderMap = new Map<string, { id: string; stato: string }>();
-  for (const f of farmacie ?? []) {
-    if (f.email_inoltro) senderMap.set(f.email_inoltro.toLowerCase(), { id: f.id, stato: f.stato });
-  }
-
-  for (const m of messages) {
-    // Niente early-skip per source_email_id: una mail può contenere più
-    // allegati e, se uno solo era stato importato (o un PDF era illeggibile
-    // al primo passaggio), salteremmo per sempre gli altri. La dedup vera
-    // avviene per (farmacia_id, numero_ricetta) più sotto.
-
-    const msgRes = await fetch(`${GATEWAY_URL}/users/me/messages/${m.id}?format=full`, {
-      headers: gmailHeaders(),
+/** Crea (se mancanti) le etichette Valide / Scartate / Da verificare e ne torna gli ID. */
+async function ensureLabels(box: Mailbox): Promise<Record<string, string>> {
+  const res = await fetch(`${box.base}/users/me/labels`, { headers: box.headers() });
+  if (!res.ok) throw new Error(`Gmail labels list failed (${res.status})`);
+  const j = (await res.json()) as { labels?: { id: string; name: string }[] };
+  const existing = new Map((j.labels ?? []).map((l) => [l.name.trim().toLowerCase(), l.id]));
+  const out: Record<string, string> = {};
+  for (const name of [LABEL_VALIDE, LABEL_SCARTATE, LABEL_VERIFICA]) {
+    const hit = existing.get(name.toLowerCase());
+    if (hit) { out[name] = hit; continue; }
+    const cRes = await fetch(`${box.base}/users/me/labels`, {
+      method: "POST",
+      headers: box.headers({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ name, labelListVisibility: "labelShow", messageListVisibility: "show" }),
     });
-    if (!msgRes.ok) {
-      console.error("Gmail get message failed", m.id, msgRes.status);
-      continue;
-    }
-    const msg = (await msgRes.json()) as GmailMessage;
-    processedMessages++;
+    if (!cRes.ok) throw new Error(`Gmail label create failed (${cRes.status}): ${(await cRes.text()).slice(0, 200)}`);
+    const cj = (await cRes.json()) as { id: string };
+    out[name] = cj.id;
+  }
+  return out;
+}
 
-    // Routing per mittente del forwarder: la farmacia inoltra dal proprio Gmail,
-    // Gmail aggiunge `X-Forwarded-For: <email-farmacia>` al messaggio inoltrato.
-    // Fallback su Return-Path / Sender / From per i casi edge.
-    const headers = msg.payload?.headers ?? [];
-    const headerVal = (name: string) =>
-      headers.find((h) => h.name.toLowerCase() === name.toLowerCase())?.value ?? "";
-    function extractEmail(raw: string): string | null {
-      if (!raw) return null;
-      const m = raw.match(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/);
-      return m ? m[0].toLowerCase() : null;
-    }
-    const senderCandidates = [
-      extractEmail(headerVal("X-Forwarded-For")),
-      extractEmail(headerVal("Return-Path")),
-      extractEmail(headerVal("Sender")),
-      extractEmail(headerVal("From")),
-    ].filter((x): x is string => !!x);
-    const subject = headerVal("Subject");
-    const dateHeader = headerVal("Date");
-    const receivedAt = dateHeader ? new Date(dateHeader).toISOString() : null;
-    const primarySender = senderCandidates[0] ?? null;
+/** Nella search di Gmail i nomi etichetta diventano minuscoli con trattini. */
+function labelSearchToken(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, "-");
+}
 
-    let target: { id: string; stato: string } | undefined;
-    for (const cand of senderCandidates) {
-      const hit = senderMap.get(cand);
-      if (hit) { target = hit; break; }
-    }
+/**
+ * Sincronizza la casella Gmail PERSONALE della farmacia dell'utente:
+ * - analizza le email con allegato non ancora etichettate (ultimi 30 giorni),
+ * - applica le regole deterministiche (CF con checksum, NRE canonico, ...),
+ * - etichetta ogni email come Valide / Scartate / Da verificare,
+ * - indicizza nel gestionale SOLO le email Valide.
+ */
+export const syncFarmaciaGmail = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { userId } = context;
+    const { data: farmRaw } = await context.supabase.rpc("current_farmacia_id", { _uid: userId });
+    const farmaciaId = (farmRaw as string | null) ?? null;
+    if (!farmaciaId) throw new Error("Nessuna farmacia associata all'utente");
 
-    if (!target) {
-      // Mittente sconosciuto: registra come pending per assegnazione manuale.
-      await supabaseAdmin.from("inbound_pending").upsert({
-        source_email_id: m.id,
-        from_email: extractEmail(headerVal("From")),
-        forwarded_for: extractEmail(headerVal("X-Forwarded-For")) ?? primarySender,
-        subject,
-        snippet: msg.snippet ?? null,
-        received_at: receivedAt,
-        stato: "in_attesa",
-      }, { onConflict: "source_email_id" });
-      unmatched++;
-      continue;
-    }
-    if (target.stato !== "attiva") {
-      console.warn("Hub sync: farmacia non attiva", target.id);
-      unmatched++;
-      continue;
-    }
-    const farmaciaId = target.id;
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: farm } = await supabaseAdmin
+      .from("farmacie")
+      .select("stato")
+      .eq("id", farmaciaId)
+      .maybeSingle();
+    if (!farm || farm.stato !== "attiva") throw new Error("La farmacia non è attiva");
 
-    const attachments = collectAttachmentParts(msg.payload?.parts);
-    if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType.toLowerCase().includes("pdf") || msg.payload.mimeType.startsWith("image/") || msg.payload.mimeType === "application/octet-stream")) {
-      attachments.push({ mimeType: msg.payload.mimeType, body: msg.payload.body, filename: subject });
+    const box = await getFarmaciaMailbox(farmaciaId);
+    if (!box) {
+      return { connected: false as const, checked: 0, imported: 0, valide: 0, scartate: 0, daVerificare: 0 };
     }
 
-    if (attachments.length === 0) {
-      skipped++;
-      continue;
+    const labels = await ensureLabels(box);
+
+    // Email con allegato degli ultimi 30 giorni non ancora esaminate
+    // (cioè senza nessuna delle nostre etichette).
+    const q = encodeURIComponent(
+      `has:attachment newer_than:30d -label:${labelSearchToken(LABEL_VALIDE)} -label:${labelSearchToken(LABEL_SCARTATE)} -label:${labelSearchToken(LABEL_VERIFICA)}`,
+    );
+    const listRes = await fetch(`${box.base}/users/me/messages?maxResults=25&q=${q}`, { headers: box.headers() });
+    if (!listRes.ok) {
+      const t = await listRes.text();
+      throw new Error(`Gmail list failed (${listRes.status}): ${t.slice(0, 200)}`);
     }
+    const list = (await listRes.json()) as { messages?: GmailMessageMeta[] };
+    const messages = list.messages ?? [];
 
-    // Niente pre-filtro su subject/snippet/filename: ogni PDF/immagine
-    // allegato viene scaricato e analizzato dal parser (deterministico o AI).
-    console.log(`Hub sync: ${m.id} → ${attachments.length} allegato/i`, subject.slice(0, 60));
+    let imported = 0;
+    let valide = 0;
+    let scartate = 0;
+    let daVerificare = 0;
 
-    for (const att of attachments) {
-      const attId = att.body?.attachmentId;
-      if (!attId) continue;
-      const attRes = await fetch(`${GATEWAY_URL}/users/me/messages/${m.id}/attachments/${attId}`, {
-        headers: gmailHeaders(),
-      });
-      if (!attRes.ok) {
-        console.error("Attachment fetch failed", attRes.status);
+    for (const m of messages) {
+      const msgRes = await fetch(`${box.base}/users/me/messages/${m.id}?format=full`, { headers: box.headers() });
+      if (!msgRes.ok) {
+        console.error("Gmail get message failed", m.id, msgRes.status);
         continue;
       }
-      const attData = (await attRes.json()) as { data?: string };
-      if (!attData.data) continue;
-      const base64 = base64UrlToBase64(attData.data);
+      const msg = (await msgRes.json()) as GmailMessage;
+      const headers = msg.payload?.headers ?? [];
+      const subject = headers.find((h) => h.name.toLowerCase() === "subject")?.value ?? "";
 
-      const mime = att.mimeType ?? "application/octet-stream";
-      const extracted = await extractDocumentFromAttachment(base64, mime);
-      console.log(`Hub sync extract ${m.id} (${att.filename ?? "?"}/${mime}) →`, extracted ? {
-        tipo: extracted.tipo_documento,
-        cf: extracted.codice_fiscale,
-        nome: extracted.nome,
-        cognome: extracted.cognome,
-        medico: extracted.medico,
-        nre: (extracted.prescrizioni ?? []).map((p) => p.numero_ricetta),
-        kw: extracted.keyword_prescrizione_trovata,
-        bc: extracted.has_barcode_code39,
-      } : "null");
-      if (!extracted) { skipped++; continue; }
-
-      // Filtra documenti non pertinenti.
-      if (extracted.tipo_documento === "altro") { skipped++; continue; }
-
-      const cfValidCheck = normalizeCF(extracted.codice_fiscale ?? null);
-      if (extracted.tipo_documento === "ricetta") {
-        if (!isValidRicettaCanonica(extracted, cfValidCheck)) {
-          console.warn("Ricetta scartata: requisiti canonici mancanti", {
-            cf: !!cfValidCheck,
-            medico: !!(extracted.medico ?? "").trim(),
-            keyword: !!extracted.keyword_prescrizione_trovata,
-            barcode: !!extracted.has_barcode_code39,
-            pres: (extracted.prescrizioni ?? []).length,
-          });
-          skipped++;
-          continue;
-        }
-      } else if (extracted.tipo_documento === "sintesi") {
-        const pres = extracted.prescrizioni ?? [];
-        if (!cfValidCheck || pres.length === 0) { skipped++; continue; }
+      const attachments = collectAttachmentParts(msg.payload?.parts);
+      if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType.toLowerCase().includes("pdf") || msg.payload.mimeType.startsWith("image/") || msg.payload.mimeType === "application/octet-stream")) {
+        attachments.push({ mimeType: msg.payload.mimeType, body: msg.payload.body, filename: subject });
       }
 
-      const cfValid = normalizeCF(extracted.codice_fiscale ?? null);
-      const nome = (extracted.nome ?? "").trim();
-      const cognome = (extracted.cognome ?? "").trim();
-      const assistitoId = await resolveOrCreateAssistito({
-        farmaciaId,
-        cf: cfValid,
-        nome,
-        cognome,
-        medico: extracted.medico ?? null,
-        esenzione: extracted.esenzione ?? null,
-      });
+      let importedHere = 0;     // NRE indicizzati ora
+      let alreadyHere = 0;      // NRE validi ma già presenti (dedup)
+      let pertinentHere = 0;    // documenti ricetta/sintesi visti (anche se non validi)
 
-      const isDpc = !!extracted.dpc;
-      const tipo = extracted.tipo_documento;
+      console.log(`Sync farmacia ${farmaciaId}: ${m.id} → ${attachments.length} allegato/i`, subject.slice(0, 60));
 
-      for (const p of extracted.prescrizioni ?? []) {
-        const nreCanon = canonicalNre(p.numero_ricetta, p.codice_regionale);
-        if (!nreCanon) {
-          console.warn("Skip prescrizione: NRE non canonico", p);
+      for (const att of attachments) {
+        const attId = att.body?.attachmentId;
+        if (!attId) continue;
+        const attRes = await fetch(`${box.base}/users/me/messages/${m.id}/attachments/${attId}`, { headers: box.headers() });
+        if (!attRes.ok) {
+          console.error("Attachment fetch failed", attRes.status);
           continue;
         }
-        // Dedup per NRE: una ricetta con stesso NRE non va reimportata.
-        const { data: existsNre } = await supabaseAdmin
-          .from("ricette")
-          .select("id, tipo_documento")
-          .eq("farmacia_id", farmaciaId)
-          .eq("numero_ricetta", nreCanon)
-          .limit(1);
-        if (existsNre && existsNre.length > 0) {
-          const existing = existsNre[0];
-          // Se esiste solo la riga "sintesi" e ora arriva la ricetta piena,
-          // promuoviamo la riga esistente a ricetta (la sintesi non deve
-          // mai oscurare la ricetta vera con lo stesso NRE).
-          if (tipo === "ricetta" && existing.tipo_documento === "sintesi") {
-            await supabaseAdmin.from("ricette").update({
-              assistito_id: assistitoId,
-              nome: extracted.nome ?? null,
-              cognome: extracted.cognome ?? null,
-              codice_fiscale: cfValid,
-              medico: extracted.medico ?? null,
-              esenzione: extracted.esenzione ?? null,
-              data_ricetta: extracted.data_ricetta ?? null,
-              codice_regionale: p.codice_regionale ?? null,
-              tipo_documento: "ricetta",
-              dpc: isDpc,
-              is_dpc_alert: isDpc,
-              source_email_id: m.id,
-            }).eq("id", existing.id);
-            importedRicette++;
-          } else {
-            skipped++;
+        const attData = (await attRes.json()) as { data?: string };
+        if (!attData.data) continue;
+        const base64 = base64UrlToBase64(attData.data);
+
+        const mime = att.mimeType ?? "application/octet-stream";
+        const extracted = await extractDocumentFromAttachment(base64, mime);
+        if (!extracted) continue;
+        if (extracted.tipo_documento === "altro") continue;
+
+        // Documento pertinente (ricetta o sintesi): da qui in poi, se i
+        // requisiti deterministici falliscono, l'email finisce "Da verificare".
+        pertinentHere++;
+
+        const cfValid = normalizeCF(extracted.codice_fiscale ?? null);
+        if (extracted.tipo_documento === "ricetta") {
+          if (!isValidRicettaCanonica(extracted, cfValid)) {
+            console.warn("Ricetta scartata: requisiti canonici mancanti", {
+              cf: !!cfValid,
+              medico: !!(extracted.medico ?? "").trim(),
+              keyword: !!extracted.keyword_prescrizione_trovata,
+              barcode: !!extracted.has_barcode_code39,
+              pres: (extracted.prescrizioni ?? []).length,
+            });
+            continue;
           }
-          continue;
+        } else if (extracted.tipo_documento === "sintesi") {
+          const pres = extracted.prescrizioni ?? [];
+          if (!cfValid || pres.length === 0) continue;
         }
 
-        const { error: rErr } = await supabaseAdmin.from("ricette").insert({
-          farmacia_id: farmaciaId,
-          assistito_id: assistitoId,
-          nome: extracted.nome ?? null,
-          cognome: extracted.cognome ?? null,
-          codice_fiscale: cfValid,
+        const nome = (extracted.nome ?? "").trim();
+        const cognome = (extracted.cognome ?? "").trim();
+        const assistitoId = await resolveOrCreateAssistito({
+          farmaciaId,
+          cf: cfValid,
+          nome,
+          cognome,
           medico: extracted.medico ?? null,
           esenzione: extracted.esenzione ?? null,
-          data_ricetta: extracted.data_ricetta ?? null,
-          numero_ricetta: nreCanon,
-          codice_regionale: p.codice_regionale ?? null,
-          tipo_documento: tipo,
-          dpc: isDpc,
-          is_dpc_alert: isDpc,
-          source: "gmail",
-          source_email_id: m.id,
-          stato: "nuova",
         });
-        if (rErr) {
-          console.error("Insert ricetta failed", rErr.message);
-          continue;
-        }
-        importedRicette++;
-      }
 
-      // Riallineo: se l'assistito è stato creato DOPO l'insert di una
-      // sintesi orfana (o se è andato in race) ricolleghiamo tutte le
-      // ricette di questo CF nella farmacia.
-      if (cfValid && !assistitoId) {
-        const { data: aRow } = await supabaseAdmin
-          .from("assistiti")
-          .select("id")
-          .eq("farmacia_id", farmaciaId)
-          .eq("codice_fiscale", cfValid)
-          .maybeSingle();
-        if (aRow) {
-          await supabaseAdmin
+        const isDpc = !!extracted.dpc;
+        const tipo = extracted.tipo_documento;
+
+        for (const p of extracted.prescrizioni ?? []) {
+          const nreCanon = canonicalNre(p.numero_ricetta, p.codice_regionale);
+          if (!nreCanon) {
+            console.warn("Skip prescrizione: NRE non canonico", p);
+            continue;
+          }
+          // Dedup per NRE per farmacia.
+          const { data: existsNre } = await supabaseAdmin
             .from("ricette")
-            .update({ assistito_id: aRow.id })
+            .select("id, tipo_documento")
+            .eq("farmacia_id", farmaciaId)
+            .eq("numero_ricetta", nreCanon)
+            .limit(1);
+          if (existsNre && existsNre.length > 0) {
+            const existing = existsNre[0];
+            // Promuovi la sintesi a ricetta piena se arriva la ricetta vera.
+            if (tipo === "ricetta" && existing.tipo_documento === "sintesi") {
+              await supabaseAdmin.from("ricette").update({
+                assistito_id: assistitoId,
+                nome: extracted.nome ?? null,
+                cognome: extracted.cognome ?? null,
+                codice_fiscale: cfValid,
+                medico: extracted.medico ?? null,
+                esenzione: extracted.esenzione ?? null,
+                data_ricetta: extracted.data_ricetta ?? null,
+                codice_regionale: p.codice_regionale ?? null,
+                tipo_documento: "ricetta",
+                dpc: isDpc,
+                is_dpc_alert: isDpc,
+                source_email_id: m.id,
+              }).eq("id", existing.id);
+              importedHere++;
+            } else {
+              alreadyHere++;
+            }
+            continue;
+          }
+
+          const { error: rErr } = await supabaseAdmin.from("ricette").insert({
+            farmacia_id: farmaciaId,
+            assistito_id: assistitoId,
+            nome: extracted.nome ?? null,
+            cognome: extracted.cognome ?? null,
+            codice_fiscale: cfValid,
+            medico: extracted.medico ?? null,
+            esenzione: extracted.esenzione ?? null,
+            data_ricetta: extracted.data_ricetta ?? null,
+            numero_ricetta: nreCanon,
+            codice_regionale: p.codice_regionale ?? null,
+            tipo_documento: tipo,
+            dpc: isDpc,
+            is_dpc_alert: isDpc,
+            source: "gmail",
+            source_email_id: m.id,
+            stato: "nuova",
+          });
+          if (rErr) {
+            console.error("Insert ricetta failed", rErr.message);
+            continue;
+          }
+          importedHere++;
+        }
+
+        // Riallineo: collega eventuali ricette orfane dello stesso CF.
+        if (cfValid && !assistitoId) {
+          const { data: aRow } = await supabaseAdmin
+            .from("assistiti")
+            .select("id")
             .eq("farmacia_id", farmaciaId)
             .eq("codice_fiscale", cfValid)
-            .is("assistito_id", null);
+            .maybeSingle();
+          if (aRow) {
+            await supabaseAdmin
+              .from("ricette")
+              .update({ assistito_id: aRow.id })
+              .eq("farmacia_id", farmaciaId)
+              .eq("codice_fiscale", cfValid)
+              .is("assistito_id", null);
+          }
         }
       }
-    }
 
-    // Marca l'email come letta (rimuovi label UNREAD) così non viene più
-    // riprocessata, indipendentemente dal fatto che siano state estratte o
-    // meno ricette valide.
-    try {
-      const modRes = await fetch(`${GATEWAY_URL}/users/me/messages/${m.id}/modify`, {
-        method: "POST",
-        headers: gmailHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ removeLabelIds: ["UNREAD"] }),
-      });
-      if (!modRes.ok) {
-        console.error("Gmail mark-as-read failed", m.id, modRes.status, (await modRes.text()).slice(0, 200));
+      // Classificazione email → etichetta.
+      let labelName: string;
+      if (importedHere > 0 || alreadyHere > 0) {
+        labelName = LABEL_VALIDE;
+        valide++;
+        imported += importedHere;
+      } else if (pertinentHere > 0) {
+        labelName = LABEL_VERIFICA;
+        daVerificare++;
+      } else {
+        labelName = LABEL_SCARTATE;
+        scartate++;
       }
-    } catch (e) {
-      console.error("Gmail mark-as-read error", m.id, e instanceof Error ? e.message : e);
-    }
-  }
 
-  return {
-    ok: true,
-    checked: messages.length,
-    processedMessages,
-    importedRicette,
-    skipped,
-    unmatched,
-  };
-}
+      try {
+        const modRes = await fetch(`${box.base}/users/me/messages/${m.id}/modify`, {
+          method: "POST",
+          headers: box.headers({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ addLabelIds: [labels[labelName]] }),
+        });
+        if (!modRes.ok) {
+          console.error("Gmail label apply failed", m.id, modRes.status, (await modRes.text()).slice(0, 200));
+        }
+      } catch (e) {
+        console.error("Gmail label apply error", m.id, e instanceof Error ? e.message : e);
+      }
+    }
+
+    await supabaseAdmin
+      .from("farmacia_gmail_tokens")
+      .update({ last_sync_at: new Date().toISOString() })
+      .eq("farmacia_id", farmaciaId);
+
+    return {
+      connected: true as const,
+      checked: messages.length,
+      imported,
+      valide,
+      scartate,
+      daVerificare,
+    };
+  });
+

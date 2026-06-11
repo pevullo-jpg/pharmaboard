@@ -193,6 +193,47 @@ export type Database = {
           },
         ]
       }
+      farmacia_gmail_tokens: {
+        Row: {
+          connected_at: string
+          connected_by: string | null
+          created_at: string
+          farmacia_id: string
+          gmail_email: string | null
+          last_sync_at: string | null
+          refresh_token: string
+          updated_at: string
+        }
+        Insert: {
+          connected_at?: string
+          connected_by?: string | null
+          created_at?: string
+          farmacia_id: string
+          gmail_email?: string | null
+          last_sync_at?: string | null
+          refresh_token: string
+          updated_at?: string
+        }
+        Update: {
+          connected_at?: string
+          connected_by?: string | null
+          created_at?: string
+          farmacia_id?: string
+          gmail_email?: string | null
+          last_sync_at?: string | null
+          refresh_token?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "farmacia_gmail_tokens_farmacia_id_fkey"
+            columns: ["farmacia_id"]
+            isOneToOne: true
+            referencedRelation: "farmacie"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       farmacia_members: {
         Row: {
           created_at: string
@@ -284,56 +325,6 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
-      }
-      inbound_pending: {
-        Row: {
-          assigned_farmacia_id: string | null
-          created_at: string
-          forwarded_for: string | null
-          from_email: string | null
-          id: string
-          received_at: string | null
-          snippet: string | null
-          source_email_id: string
-          stato: string
-          subject: string | null
-          updated_at: string
-        }
-        Insert: {
-          assigned_farmacia_id?: string | null
-          created_at?: string
-          forwarded_for?: string | null
-          from_email?: string | null
-          id?: string
-          received_at?: string | null
-          snippet?: string | null
-          source_email_id: string
-          stato?: string
-          subject?: string | null
-          updated_at?: string
-        }
-        Update: {
-          assigned_farmacia_id?: string | null
-          created_at?: string
-          forwarded_for?: string | null
-          from_email?: string | null
-          id?: string
-          received_at?: string | null
-          snippet?: string | null
-          source_email_id?: string
-          stato?: string
-          subject?: string | null
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "inbound_pending_assigned_farmacia_id_fkey"
-            columns: ["assigned_farmacia_id"]
-            isOneToOne: false
-            referencedRelation: "farmacie"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       prenotazioni: {
         Row: {
