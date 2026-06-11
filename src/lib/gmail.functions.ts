@@ -1221,3 +1221,282 @@ export const reprocessExistingRicette = createServerFn({ method: "POST" })
     return { processed, updated, removedAltro, removedDup, failed };
   });
 
+// ---------- Sync della casella Gmail della farmacia ----------
+
+const LABEL_VALIDE = "Valide";
+const LABEL_SCARTATE = "Scartate";
+const LABEL_VERIFICA = "Da verificare";
+
+/** Crea (se mancanti) le etichette Valide / Scartate / Da verificare e ne torna gli ID. */
+async function ensureLabels(box: Mailbox): Promise<Record<string, string>> {
+  const res = await fetch(`${box.base}/users/me/labels`, { headers: box.headers() });
+  if (!res.ok) throw new Error(`Gmail labels list failed (${res.status})`);
+  const j = (await res.json()) as { labels?: { id: string; name: string }[] };
+  const existing = new Map((j.labels ?? []).map((l) => [l.name.trim().toLowerCase(), l.id]));
+  const out: Record<string, string> = {};
+  for (const name of [LABEL_VALIDE, LABEL_SCARTATE, LABEL_VERIFICA]) {
+    const hit = existing.get(name.toLowerCase());
+    if (hit) { out[name] = hit; continue; }
+    const cRes = await fetch(`${box.base}/users/me/labels`, {
+      method: "POST",
+      headers: box.headers({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ name, labelListVisibility: "labelShow", messageListVisibility: "show" }),
+    });
+    if (!cRes.ok) throw new Error(`Gmail label create failed (${cRes.status}): ${(await cRes.text()).slice(0, 200)}`);
+    const cj = (await cRes.json()) as { id: string };
+    out[name] = cj.id;
+  }
+  return out;
+}
+
+/** Nella search di Gmail i nomi etichetta diventano minuscoli con trattini. */
+function labelSearchToken(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, "-");
+}
+
+/**
+ * Sincronizza la casella Gmail PERSONALE della farmacia dell'utente:
+ * - analizza le email con allegato non ancora etichettate (ultimi 30 giorni),
+ * - applica le regole deterministiche (CF con checksum, NRE canonico, ...),
+ * - etichetta ogni email come Valide / Scartate / Da verificare,
+ * - indicizza nel gestionale SOLO le email Valide.
+ */
+export const syncFarmaciaGmail = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    const { userId } = context;
+    const { data: farmRaw } = await context.supabase.rpc("current_farmacia_id", { _uid: userId });
+    const farmaciaId = (farmRaw as string | null) ?? null;
+    if (!farmaciaId) throw new Error("Nessuna farmacia associata all'utente");
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data: farm } = await supabaseAdmin
+      .from("farmacie")
+      .select("stato")
+      .eq("id", farmaciaId)
+      .maybeSingle();
+    if (!farm || farm.stato !== "attiva") throw new Error("La farmacia non è attiva");
+
+    const box = await getFarmaciaMailbox(farmaciaId);
+    if (!box) {
+      return { connected: false as const, checked: 0, imported: 0, valide: 0, scartate: 0, daVerificare: 0 };
+    }
+
+    const labels = await ensureLabels(box);
+
+    // Email con allegato degli ultimi 30 giorni non ancora esaminate
+    // (cioè senza nessuna delle nostre etichette).
+    const q = encodeURIComponent(
+      `has:attachment newer_than:30d -label:${labelSearchToken(LABEL_VALIDE)} -label:${labelSearchToken(LABEL_SCARTATE)} -label:${labelSearchToken(LABEL_VERIFICA)}`,
+    );
+    const listRes = await fetch(`${box.base}/users/me/messages?maxResults=25&q=${q}`, { headers: box.headers() });
+    if (!listRes.ok) {
+      const t = await listRes.text();
+      throw new Error(`Gmail list failed (${listRes.status}): ${t.slice(0, 200)}`);
+    }
+    const list = (await listRes.json()) as { messages?: GmailMessageMeta[] };
+    const messages = list.messages ?? [];
+
+    let imported = 0;
+    let valide = 0;
+    let scartate = 0;
+    let daVerificare = 0;
+
+    for (const m of messages) {
+      const msgRes = await fetch(`${box.base}/users/me/messages/${m.id}?format=full`, { headers: box.headers() });
+      if (!msgRes.ok) {
+        console.error("Gmail get message failed", m.id, msgRes.status);
+        continue;
+      }
+      const msg = (await msgRes.json()) as GmailMessage;
+      const headers = msg.payload?.headers ?? [];
+      const subject = headers.find((h) => h.name.toLowerCase() === "subject")?.value ?? "";
+
+      const attachments = collectAttachmentParts(msg.payload?.parts);
+      if (msg.payload?.body?.attachmentId && msg.payload.mimeType && (msg.payload.mimeType.toLowerCase().includes("pdf") || msg.payload.mimeType.startsWith("image/") || msg.payload.mimeType === "application/octet-stream")) {
+        attachments.push({ mimeType: msg.payload.mimeType, body: msg.payload.body, filename: subject });
+      }
+
+      let importedHere = 0;     // NRE indicizzati ora
+      let alreadyHere = 0;      // NRE validi ma già presenti (dedup)
+      let pertinentHere = 0;    // documenti ricetta/sintesi visti (anche se non validi)
+
+      console.log(`Sync farmacia ${farmaciaId}: ${m.id} → ${attachments.length} allegato/i`, subject.slice(0, 60));
+
+      for (const att of attachments) {
+        const attId = att.body?.attachmentId;
+        if (!attId) continue;
+        const attRes = await fetch(`${box.base}/users/me/messages/${m.id}/attachments/${attId}`, { headers: box.headers() });
+        if (!attRes.ok) {
+          console.error("Attachment fetch failed", attRes.status);
+          continue;
+        }
+        const attData = (await attRes.json()) as { data?: string };
+        if (!attData.data) continue;
+        const base64 = base64UrlToBase64(attData.data);
+
+        const mime = att.mimeType ?? "application/octet-stream";
+        const extracted = await extractDocumentFromAttachment(base64, mime);
+        if (!extracted) continue;
+        if (extracted.tipo_documento === "altro") continue;
+
+        // Documento pertinente (ricetta o sintesi): da qui in poi, se i
+        // requisiti deterministici falliscono, l'email finisce "Da verificare".
+        pertinentHere++;
+
+        const cfValid = normalizeCF(extracted.codice_fiscale ?? null);
+        if (extracted.tipo_documento === "ricetta") {
+          if (!isValidRicettaCanonica(extracted, cfValid)) {
+            console.warn("Ricetta scartata: requisiti canonici mancanti", {
+              cf: !!cfValid,
+              medico: !!(extracted.medico ?? "").trim(),
+              keyword: !!extracted.keyword_prescrizione_trovata,
+              barcode: !!extracted.has_barcode_code39,
+              pres: (extracted.prescrizioni ?? []).length,
+            });
+            continue;
+          }
+        } else if (extracted.tipo_documento === "sintesi") {
+          const pres = extracted.prescrizioni ?? [];
+          if (!cfValid || pres.length === 0) continue;
+        }
+
+        const nome = (extracted.nome ?? "").trim();
+        const cognome = (extracted.cognome ?? "").trim();
+        const assistitoId = await resolveOrCreateAssistito({
+          farmaciaId,
+          cf: cfValid,
+          nome,
+          cognome,
+          medico: extracted.medico ?? null,
+          esenzione: extracted.esenzione ?? null,
+        });
+
+        const isDpc = !!extracted.dpc;
+        const tipo = extracted.tipo_documento;
+
+        for (const p of extracted.prescrizioni ?? []) {
+          const nreCanon = canonicalNre(p.numero_ricetta, p.codice_regionale);
+          if (!nreCanon) {
+            console.warn("Skip prescrizione: NRE non canonico", p);
+            continue;
+          }
+          // Dedup per NRE per farmacia.
+          const { data: existsNre } = await supabaseAdmin
+            .from("ricette")
+            .select("id, tipo_documento")
+            .eq("farmacia_id", farmaciaId)
+            .eq("numero_ricetta", nreCanon)
+            .limit(1);
+          if (existsNre && existsNre.length > 0) {
+            const existing = existsNre[0];
+            // Promuovi la sintesi a ricetta piena se arriva la ricetta vera.
+            if (tipo === "ricetta" && existing.tipo_documento === "sintesi") {
+              await supabaseAdmin.from("ricette").update({
+                assistito_id: assistitoId,
+                nome: extracted.nome ?? null,
+                cognome: extracted.cognome ?? null,
+                codice_fiscale: cfValid,
+                medico: extracted.medico ?? null,
+                esenzione: extracted.esenzione ?? null,
+                data_ricetta: extracted.data_ricetta ?? null,
+                codice_regionale: p.codice_regionale ?? null,
+                tipo_documento: "ricetta",
+                dpc: isDpc,
+                is_dpc_alert: isDpc,
+                source_email_id: m.id,
+              }).eq("id", existing.id);
+              importedHere++;
+            } else {
+              alreadyHere++;
+            }
+            continue;
+          }
+
+          const { error: rErr } = await supabaseAdmin.from("ricette").insert({
+            farmacia_id: farmaciaId,
+            assistito_id: assistitoId,
+            nome: extracted.nome ?? null,
+            cognome: extracted.cognome ?? null,
+            codice_fiscale: cfValid,
+            medico: extracted.medico ?? null,
+            esenzione: extracted.esenzione ?? null,
+            data_ricetta: extracted.data_ricetta ?? null,
+            numero_ricetta: nreCanon,
+            codice_regionale: p.codice_regionale ?? null,
+            tipo_documento: tipo,
+            dpc: isDpc,
+            is_dpc_alert: isDpc,
+            source: "gmail",
+            source_email_id: m.id,
+            stato: "nuova",
+          });
+          if (rErr) {
+            console.error("Insert ricetta failed", rErr.message);
+            continue;
+          }
+          importedHere++;
+        }
+
+        // Riallineo: collega eventuali ricette orfane dello stesso CF.
+        if (cfValid && !assistitoId) {
+          const { data: aRow } = await supabaseAdmin
+            .from("assistiti")
+            .select("id")
+            .eq("farmacia_id", farmaciaId)
+            .eq("codice_fiscale", cfValid)
+            .maybeSingle();
+          if (aRow) {
+            await supabaseAdmin
+              .from("ricette")
+              .update({ assistito_id: aRow.id })
+              .eq("farmacia_id", farmaciaId)
+              .eq("codice_fiscale", cfValid)
+              .is("assistito_id", null);
+          }
+        }
+      }
+
+      // Classificazione email → etichetta.
+      let labelName: string;
+      if (importedHere > 0 || alreadyHere > 0) {
+        labelName = LABEL_VALIDE;
+        valide++;
+        imported += importedHere;
+      } else if (pertinentHere > 0) {
+        labelName = LABEL_VERIFICA;
+        daVerificare++;
+      } else {
+        labelName = LABEL_SCARTATE;
+        scartate++;
+      }
+
+      try {
+        const modRes = await fetch(`${box.base}/users/me/messages/${m.id}/modify`, {
+          method: "POST",
+          headers: box.headers({ "Content-Type": "application/json" }),
+          body: JSON.stringify({ addLabelIds: [labels[labelName]] }),
+        });
+        if (!modRes.ok) {
+          console.error("Gmail label apply failed", m.id, modRes.status, (await modRes.text()).slice(0, 200));
+        }
+      } catch (e) {
+        console.error("Gmail label apply error", m.id, e instanceof Error ? e.message : e);
+      }
+    }
+
+    await supabaseAdmin
+      .from("farmacia_gmail_tokens")
+      .update({ last_sync_at: new Date().toISOString() })
+      .eq("farmacia_id", farmaciaId);
+
+    return {
+      connected: true as const,
+      checked: messages.length,
+      imported,
+      valide,
+      scartate,
+      daVerificare,
+    };
+  });
+
