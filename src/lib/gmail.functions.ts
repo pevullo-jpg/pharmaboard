@@ -2,7 +2,122 @@ import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-const GATEWAY_URL = "https://connector-gateway.lovable.dev/google_mail/gmail/v1";
+const GMAIL_API = "https://gmail.googleapis.com/gmail/v1";
+// Vecchio account hub (connector workspace): tenuto SOLO come fallback in
+// lettura per aprire gli allegati delle ricette importate prima della
+// migrazione al Gmail personale di ogni farmacia.
+const HUB_GATEWAY_URL = "https://connector-gateway.lovable.dev/google_mail/gmail/v1";
+
+// ---------- Accesso alla casella Gmail della farmacia ----------
+
+type Mailbox = { base: string; headers: (extra?: HeadersInit) => Headers };
+
+const accessTokenCache = new Map<string, { token: string; expiresAt: number }>();
+
+/**
+ * Scambia il refresh token della farmacia con un access token Google.
+ * Torna null se la farmacia non ha collegato la propria casella.
+ */
+async function getFarmaciaAccessToken(farmaciaId: string): Promise<string | null> {
+  const cached = accessTokenCache.get(farmaciaId);
+  if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token;
+
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data: row } = await supabaseAdmin
+    .from("farmacia_gmail_tokens")
+    .select("refresh_token")
+    .eq("farmacia_id", farmaciaId)
+    .maybeSingle();
+  if (!row?.refresh_token) return null;
+
+  const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
+  if (!clientId || !clientSecret) {
+    throw new Error("Credenziali Google OAuth non configurate (GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET)");
+  }
+
+  const res = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      grant_type: "refresh_token",
+      refresh_token: row.refresh_token,
+    }),
+  });
+  if (!res.ok) {
+    const t = await res.text();
+    console.error("Gmail token refresh failed", farmaciaId, res.status, t.slice(0, 200));
+    if (res.status === 400 || res.status === 401) {
+      throw new Error("Autorizzazione Gmail scaduta o revocata: ricollega la casella in Impostazioni");
+    }
+    throw new Error("Errore di autorizzazione Gmail");
+  }
+  const j = (await res.json()) as { access_token?: string; expires_in?: number };
+  if (!j.access_token) return null;
+  accessTokenCache.set(farmaciaId, {
+    token: j.access_token,
+    expiresAt: Date.now() + (j.expires_in ?? 3600) * 1000,
+  });
+  return j.access_token;
+}
+
+/** Casella Gmail personale della farmacia (null se non collegata). */
+async function getFarmaciaMailbox(farmaciaId: string): Promise<Mailbox | null> {
+  const token = await getFarmaciaAccessToken(farmaciaId);
+  if (!token) return null;
+  return {
+    base: GMAIL_API,
+    headers: (extra?: HeadersInit) => {
+      const h = new Headers(extra);
+      h.set("Authorization", `Bearer ${token}`);
+      return h;
+    },
+  };
+}
+
+/** Vecchia casella hub via connector (solo lettura legacy). */
+function hubMailbox(): Mailbox | null {
+  const apiKey = process.env.LOVABLE_API_KEY;
+  const connKey = process.env.GOOGLE_MAIL_API_KEY;
+  if (!apiKey || !connKey) return null;
+  return {
+    base: HUB_GATEWAY_URL,
+    headers: (extra?: HeadersInit) => {
+      const h = new Headers(extra);
+      h.set("Authorization", `Bearer ${apiKey}`);
+      h.set("X-Connection-Api-Key", connKey);
+      return h;
+    },
+  };
+}
+
+/**
+ * Caselle in cui cercare i messaggi di una farmacia: prima la propria,
+ * poi (fallback) la vecchia casella hub per le email importate in passato.
+ */
+async function mailboxesForFarmacia(farmaciaId: string): Promise<Mailbox[]> {
+  const out: Mailbox[] = [];
+  const own = await getFarmaciaMailbox(farmaciaId);
+  if (own) out.push(own);
+  const hub = hubMailbox();
+  if (hub) out.push(hub);
+  return out;
+}
+
+/** Scarica un messaggio completo provando le caselle in ordine. */
+async function fetchMessageFull(boxes: Mailbox[], emailId: string): Promise<{ box: Mailbox; msg: GmailMessage } | null> {
+  for (const box of boxes) {
+    try {
+      const res = await fetch(`${box.base}/users/me/messages/${emailId}?format=full`, { headers: box.headers() });
+      if (res.ok) return { box, msg: (await res.json()) as GmailMessage };
+    } catch (e) {
+      console.warn("fetchMessageFull failed on mailbox", e instanceof Error ? e.message : e);
+    }
+  }
+  return null;
+}
 
 // ---------- Codice fiscale: validazione formale + checksum ----------
 const CF_REGEX = /^[A-Z]{6}[0-9LMNPQRSTUV]{2}[A-Z][0-9LMNPQRSTUV]{2}[A-Z][0-9LMNPQRSTUV]{3}[A-Z]$/;
