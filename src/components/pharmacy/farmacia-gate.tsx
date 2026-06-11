@@ -39,7 +39,14 @@ export function FarmaciaGate({ children }: { children: React.ReactNode }) {
   }, [navigate, qc]);
   const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["my-farmacia"],
-    queryFn: () => fetchFn(),
+    queryFn: async () => {
+      // Re-check the session at call time: it may have expired/been cleared
+      // between renders, and firing the serverFn without a bearer token
+      // produces an unhandled "Unauthorized" error (blank screen in dev).
+      const { data: s } = await supabase.auth.getSession();
+      if (!s.session) return null;
+      return fetchFn();
+    },
     staleTime: 30_000,
     enabled: hasSession === true,
     retry: (failureCount, err) => {
@@ -65,7 +72,19 @@ export function FarmaciaGate({ children }: { children: React.ReactNode }) {
     }
   }, [isError, error, navigate, qc]);
 
-  if (hasSession !== true || isLoading) {
+  // queryFn returned null → session vanished mid-flight: bounce to /auth.
+  useEffect(() => {
+    if (hasSession === true && !isLoading && !isError && data === null) {
+      (async () => {
+        await qc.cancelQueries();
+        qc.clear();
+        await supabase.auth.signOut();
+        navigate({ to: "/auth", replace: true });
+      })();
+    }
+  }, [hasSession, isLoading, isError, data, navigate, qc]);
+
+  if (hasSession !== true || isLoading || data === null) {
     return (
       <div className="min-h-screen grid place-items-center">
         <Loader2 className="size-6 animate-spin text-muted-foreground" />
