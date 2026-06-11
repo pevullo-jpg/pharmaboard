@@ -1063,12 +1063,6 @@ async function callAIExtraction(apiKey: string, prompt: string, base64: string, 
   }
 }
 
-export const syncGmailRicette = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .handler(async () => {
-    return await runHubSync();
-  });
-
 /**
  * Rielabora con il classificatore aggiornato tutte le ricette già importate
  * dalla farmacia corrente (o tutte se super admin).
