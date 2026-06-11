@@ -17,8 +17,6 @@ import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/
 import { Route as AuthenticatedImpostazioniRouteImport } from './routes/_authenticated/impostazioni'
 import { Route as AuthenticatedAssistitiRouteImport } from './routes/_authenticated/assistiti'
 import { Route as AuthenticatedAssistitiIdRouteImport } from './routes/_authenticated/assistiti.$id'
-import { Route as AuthenticatedAdminEmailPendingRouteImport } from './routes/_authenticated/admin.email-pending'
-import { Route as ApiPublicHooksSyncInboundHubRouteImport } from './routes/api/public/hooks/sync-inbound-hub'
 
 const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
   id: '/sitemap.xml',
@@ -61,18 +59,6 @@ const AuthenticatedAssistitiIdRoute =
     path: '/$id',
     getParentRoute: () => AuthenticatedAssistitiRoute,
   } as any)
-const AuthenticatedAdminEmailPendingRoute =
-  AuthenticatedAdminEmailPendingRouteImport.update({
-    id: '/admin/email-pending',
-    path: '/admin/email-pending',
-    getParentRoute: () => AuthenticatedRouteRoute,
-  } as any)
-const ApiPublicHooksSyncInboundHubRoute =
-  ApiPublicHooksSyncInboundHubRouteImport.update({
-    id: '/api/public/hooks/sync-inbound-hub',
-    path: '/api/public/hooks/sync-inbound-hub',
-    getParentRoute: () => rootRouteImport,
-  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AuthenticatedIndexRoute
@@ -81,9 +67,7 @@ export interface FileRoutesByFullPath {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/assistiti': typeof AuthenticatedAssistitiRouteWithChildren
   '/impostazioni': typeof AuthenticatedImpostazioniRoute
-  '/admin/email-pending': typeof AuthenticatedAdminEmailPendingRoute
   '/assistiti/$id': typeof AuthenticatedAssistitiIdRoute
-  '/api/public/hooks/sync-inbound-hub': typeof ApiPublicHooksSyncInboundHubRoute
 }
 export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
@@ -92,9 +76,7 @@ export interface FileRoutesByTo {
   '/assistiti': typeof AuthenticatedAssistitiRouteWithChildren
   '/impostazioni': typeof AuthenticatedImpostazioniRoute
   '/': typeof AuthenticatedIndexRoute
-  '/admin/email-pending': typeof AuthenticatedAdminEmailPendingRoute
   '/assistiti/$id': typeof AuthenticatedAssistitiIdRoute
-  '/api/public/hooks/sync-inbound-hub': typeof ApiPublicHooksSyncInboundHubRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -105,9 +87,7 @@ export interface FileRoutesById {
   '/_authenticated/assistiti': typeof AuthenticatedAssistitiRouteWithChildren
   '/_authenticated/impostazioni': typeof AuthenticatedImpostazioniRoute
   '/_authenticated/': typeof AuthenticatedIndexRoute
-  '/_authenticated/admin/email-pending': typeof AuthenticatedAdminEmailPendingRoute
   '/_authenticated/assistiti/$id': typeof AuthenticatedAssistitiIdRoute
-  '/api/public/hooks/sync-inbound-hub': typeof ApiPublicHooksSyncInboundHubRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -118,9 +98,7 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/assistiti'
     | '/impostazioni'
-    | '/admin/email-pending'
     | '/assistiti/$id'
-    | '/api/public/hooks/sync-inbound-hub'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/auth'
@@ -129,9 +107,7 @@ export interface FileRouteTypes {
     | '/assistiti'
     | '/impostazioni'
     | '/'
-    | '/admin/email-pending'
     | '/assistiti/$id'
-    | '/api/public/hooks/sync-inbound-hub'
   id:
     | '__root__'
     | '/_authenticated'
@@ -141,9 +117,7 @@ export interface FileRouteTypes {
     | '/_authenticated/assistiti'
     | '/_authenticated/impostazioni'
     | '/_authenticated/'
-    | '/_authenticated/admin/email-pending'
     | '/_authenticated/assistiti/$id'
-    | '/api/public/hooks/sync-inbound-hub'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -151,7 +125,6 @@ export interface RootRouteChildren {
   AuthRoute: typeof AuthRoute
   RegistraFarmaciaRoute: typeof RegistraFarmaciaRoute
   SitemapDotxmlRoute: typeof SitemapDotxmlRoute
-  ApiPublicHooksSyncInboundHubRoute: typeof ApiPublicHooksSyncInboundHubRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -212,20 +185,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAssistitiIdRouteImport
       parentRoute: typeof AuthenticatedAssistitiRoute
     }
-    '/_authenticated/admin/email-pending': {
-      id: '/_authenticated/admin/email-pending'
-      path: '/admin/email-pending'
-      fullPath: '/admin/email-pending'
-      preLoaderRoute: typeof AuthenticatedAdminEmailPendingRouteImport
-      parentRoute: typeof AuthenticatedRouteRoute
-    }
-    '/api/public/hooks/sync-inbound-hub': {
-      id: '/api/public/hooks/sync-inbound-hub'
-      path: '/api/public/hooks/sync-inbound-hub'
-      fullPath: '/api/public/hooks/sync-inbound-hub'
-      preLoaderRoute: typeof ApiPublicHooksSyncInboundHubRouteImport
-      parentRoute: typeof rootRouteImport
-    }
   }
 }
 
@@ -247,14 +206,12 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedAssistitiRoute: typeof AuthenticatedAssistitiRouteWithChildren
   AuthenticatedImpostazioniRoute: typeof AuthenticatedImpostazioniRoute
   AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
-  AuthenticatedAdminEmailPendingRoute: typeof AuthenticatedAdminEmailPendingRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAssistitiRoute: AuthenticatedAssistitiRouteWithChildren,
   AuthenticatedImpostazioniRoute: AuthenticatedImpostazioniRoute,
   AuthenticatedIndexRoute: AuthenticatedIndexRoute,
-  AuthenticatedAdminEmailPendingRoute: AuthenticatedAdminEmailPendingRoute,
 }
 
 const AuthenticatedRouteRouteWithChildren =
@@ -265,8 +222,17 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRoute: AuthRoute,
   RegistraFarmaciaRoute: RegistraFarmaciaRoute,
   SitemapDotxmlRoute: SitemapDotxmlRoute,
-  ApiPublicHooksSyncInboundHubRoute: ApiPublicHooksSyncInboundHubRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
