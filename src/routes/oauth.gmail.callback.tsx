@@ -22,8 +22,6 @@ function GmailCallbackPage() {
       const code = params.get("code");
       const state = params.get("state");
       const errorParam = params.get("error");
-      const expectedState = localStorage.getItem("gmail_oauth_state");
-      localStorage.removeItem("gmail_oauth_state");
 
       const finish = (ok: boolean, msg: string, email?: string | null) => {
         if (cancelled) return;
@@ -46,14 +44,14 @@ function GmailCallbackPage() {
         finish(false, "Codice di autorizzazione mancante.");
         return;
       }
-      if (!expectedState || state !== expectedState) {
+      if (!state) {
         finish(false, "Verifica di sicurezza fallita. Riprova dalla pagina Impostazioni.");
         return;
       }
 
       try {
         const redirectUri = `${window.location.origin}/oauth/gmail/callback`;
-        const res = await complete({ data: { code, redirectUri } });
+        const res = await complete({ data: { code, state, redirectUri } });
         finish(true, `Casella ${res.email ?? "Gmail"} collegata con successo.`, res.email);
       } catch (e) {
         finish(false, e instanceof Error ? e.message : "Errore durante il collegamento.");

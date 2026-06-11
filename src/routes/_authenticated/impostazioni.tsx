@@ -71,11 +71,9 @@ function GmailSection() {
       return;
     }
     setConnecting(true);
-    const state = crypto.randomUUID().replace(/-/g, "");
-    localStorage.setItem("gmail_oauth_state", state);
     try {
       const { authUrl } = await start({
-        data: { redirectUri: `${window.location.origin}/oauth/gmail/callback`, state },
+        data: { redirectUri: `${window.location.origin}/oauth/gmail/callback` },
       });
       popup.location.href = authUrl;
       // Se l'utente chiude il popup senza completare, riabilita il pulsante.
