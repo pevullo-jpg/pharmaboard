@@ -1484,7 +1484,11 @@ export const syncFarmaciaGmail = createServerFn({ method: "POST" })
         const modRes = await fetch(`${box.base}/users/me/messages/${m.id}/modify`, {
           method: "POST",
           headers: box.headers({ "Content-Type": "application/json" }),
-          body: JSON.stringify({ addLabelIds: [labels[labelName]] }),
+          body: JSON.stringify(
+            labelName === LABEL_VALIDE
+              ? { addLabelIds: [labels[labelName]], removeLabelIds: ["INBOX"] }
+              : { addLabelIds: [labels[labelName]] },
+          ),
         });
         if (!modRes.ok) {
           console.error("Gmail label apply failed", m.id, modRes.status, (await modRes.text()).slice(0, 200));
@@ -1492,6 +1496,34 @@ export const syncFarmaciaGmail = createServerFn({ method: "POST" })
       } catch (e) {
         console.error("Gmail label apply error", m.id, e instanceof Error ? e.message : e);
       }
+    }
+
+    // Pulizia: cestina le email "Valide" più vecchie di 32 giorni dalla
+    // ricezione (sono già state archiviate e indicizzate nel gestionale).
+    let trashed = 0;
+    try {
+      const cleanupQ = encodeURIComponent(
+        `label:${labelSearchToken(LABEL_VALIDE)} older_than:32d`,
+      );
+      const cRes = await fetch(
+        `${box.base}/users/me/messages?maxResults=100&q=${cleanupQ}`,
+        { headers: box.headers() },
+      );
+      if (cRes.ok) {
+        const cj = (await cRes.json()) as { messages?: GmailMessageMeta[] };
+        for (const old of cj.messages ?? []) {
+          const tRes = await fetch(
+            `${box.base}/users/me/messages/${old.id}/trash`,
+            { method: "POST", headers: box.headers() },
+          );
+          if (tRes.ok) trashed++;
+          else console.error("Gmail trash failed", old.id, tRes.status);
+        }
+      } else {
+        console.error("Gmail cleanup list failed", cRes.status);
+      }
+    } catch (e) {
+      console.error("Gmail cleanup error", e instanceof Error ? e.message : e);
     }
 
     await supabaseAdmin
@@ -1506,6 +1538,7 @@ export const syncFarmaciaGmail = createServerFn({ method: "POST" })
       valide,
       scartate,
       daVerificare,
+      trashed,
     };
   });
 
