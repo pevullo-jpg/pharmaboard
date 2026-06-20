@@ -22,6 +22,7 @@ export type Database = {
           farmacia_id: string
           farmaco: string
           id: string
+          medico: string | null
           note: string | null
           quantita: number
           stato: string
@@ -34,6 +35,7 @@ export type Database = {
           farmacia_id?: string
           farmaco: string
           id?: string
+          medico?: string | null
           note?: string | null
           quantita?: number
           stato?: string
@@ -46,6 +48,7 @@ export type Database = {
           farmacia_id?: string
           farmaco?: string
           id?: string
+          medico?: string | null
           note?: string | null
           quantita?: number
           stato?: string
@@ -193,6 +196,190 @@ export type Database = {
           },
         ]
       }
+      famiglia_cf_pending: {
+        Row: {
+          codice_fiscale: string
+          created_at: string
+          farmacia_id: string
+          id: string
+          nucleo_id: string
+        }
+        Insert: {
+          codice_fiscale: string
+          created_at?: string
+          farmacia_id: string
+          id?: string
+          nucleo_id: string
+        }
+        Update: {
+          codice_fiscale?: string
+          created_at?: string
+          farmacia_id?: string
+          id?: string
+          nucleo_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "famiglia_cf_pending_farmacia_id_fkey"
+            columns: ["farmacia_id"]
+            isOneToOne: false
+            referencedRelation: "farmacie"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "famiglia_cf_pending_nucleo_id_fkey"
+            columns: ["nucleo_id"]
+            isOneToOne: false
+            referencedRelation: "famiglia_nuclei"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      famiglia_membri: {
+        Row: {
+          assistito_id: string
+          created_at: string
+          farmacia_id: string
+          id: string
+          nucleo_id: string
+        }
+        Insert: {
+          assistito_id: string
+          created_at?: string
+          farmacia_id: string
+          id?: string
+          nucleo_id: string
+        }
+        Update: {
+          assistito_id?: string
+          created_at?: string
+          farmacia_id?: string
+          id?: string
+          nucleo_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "famiglia_membri_assistito_id_fkey"
+            columns: ["assistito_id"]
+            isOneToOne: true
+            referencedRelation: "assistiti"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "famiglia_membri_farmacia_id_fkey"
+            columns: ["farmacia_id"]
+            isOneToOne: false
+            referencedRelation: "farmacie"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "famiglia_membri_nucleo_id_fkey"
+            columns: ["nucleo_id"]
+            isOneToOne: false
+            referencedRelation: "famiglia_nuclei"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      famiglia_nuclei: {
+        Row: {
+          color_index: number
+          created_at: string
+          farmacia_id: string
+          id: string
+          note: string | null
+          updated_at: string
+        }
+        Insert: {
+          color_index?: number
+          created_at?: string
+          farmacia_id: string
+          id?: string
+          note?: string | null
+          updated_at?: string
+        }
+        Update: {
+          color_index?: number
+          created_at?: string
+          farmacia_id?: string
+          id?: string
+          note?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "famiglia_nuclei_farmacia_id_fkey"
+            columns: ["farmacia_id"]
+            isOneToOne: false
+            referencedRelation: "farmacie"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      farmacia_citta_blocklist: {
+        Row: {
+          citta: string
+          created_at: string
+          farmacia_id: string
+          id: string
+          note: string | null
+        }
+        Insert: {
+          citta: string
+          created_at?: string
+          farmacia_id: string
+          id?: string
+          note?: string | null
+        }
+        Update: {
+          citta?: string
+          created_at?: string
+          farmacia_id?: string
+          id?: string
+          note?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "farmacia_citta_blocklist_farmacia_id_fkey"
+            columns: ["farmacia_id"]
+            isOneToOne: false
+            referencedRelation: "farmacie"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      farmacia_email_blocklist: {
+        Row: {
+          created_at: string
+          email: string
+          farmacia_id: string
+          id: string
+          note: string | null
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          farmacia_id: string
+          id?: string
+          note?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          farmacia_id?: string
+          id?: string
+          note?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "farmacia_email_blocklist_farmacia_id_fkey"
+            columns: ["farmacia_id"]
+            isOneToOne: false
+            referencedRelation: "farmacie"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       farmacia_gmail_tokens: {
         Row: {
           connected_at: string
@@ -202,6 +389,7 @@ export type Database = {
           gmail_email: string | null
           last_sync_at: string | null
           refresh_token: string
+          scan_enabled: boolean
           updated_at: string
         }
         Insert: {
@@ -212,6 +400,7 @@ export type Database = {
           gmail_email?: string | null
           last_sync_at?: string | null
           refresh_token: string
+          scan_enabled?: boolean
           updated_at?: string
         }
         Update: {
@@ -222,6 +411,7 @@ export type Database = {
           gmail_email?: string | null
           last_sync_at?: string | null
           refresh_token?: string
+          scan_enabled?: boolean
           updated_at?: string
         }
         Relationships: [
@@ -430,6 +620,7 @@ export type Database = {
       ricette: {
         Row: {
           assistito_id: string | null
+          citta: string | null
           codice_fiscale: string | null
           codice_regionale: string | null
           cognome: string | null
@@ -447,6 +638,7 @@ export type Database = {
           pdf_url: string | null
           raw_text: string | null
           source: string
+          source_email_from: string | null
           source_email_id: string | null
           stato: string
           tipo_documento: string
@@ -454,6 +646,7 @@ export type Database = {
         }
         Insert: {
           assistito_id?: string | null
+          citta?: string | null
           codice_fiscale?: string | null
           codice_regionale?: string | null
           cognome?: string | null
@@ -471,6 +664,7 @@ export type Database = {
           pdf_url?: string | null
           raw_text?: string | null
           source?: string
+          source_email_from?: string | null
           source_email_id?: string | null
           stato?: string
           tipo_documento?: string
@@ -478,6 +672,7 @@ export type Database = {
         }
         Update: {
           assistito_id?: string | null
+          citta?: string | null
           codice_fiscale?: string | null
           codice_regionale?: string | null
           cognome?: string | null
@@ -495,6 +690,7 @@ export type Database = {
           pdf_url?: string | null
           raw_text?: string | null
           source?: string
+          source_email_from?: string | null
           source_email_id?: string | null
           stato?: string
           tipo_documento?: string
@@ -517,11 +713,125 @@ export type Database = {
           },
         ]
       }
+      usage_alert_thresholds: {
+        Row: {
+          calls_per_hour_critical: number
+          calls_per_hour_warning: number
+          id: boolean
+          spike_multiplier: number
+          total_ms_per_day_critical: number
+          total_ms_per_day_warning: number
+          updated_at: string
+        }
+        Insert: {
+          calls_per_hour_critical?: number
+          calls_per_hour_warning?: number
+          id?: boolean
+          spike_multiplier?: number
+          total_ms_per_day_critical?: number
+          total_ms_per_day_warning?: number
+          updated_at?: string
+        }
+        Update: {
+          calls_per_hour_critical?: number
+          calls_per_hour_warning?: number
+          id?: boolean
+          spike_multiplier?: number
+          total_ms_per_day_critical?: number
+          total_ms_per_day_warning?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      user_resource_logs: {
+        Row: {
+          created_at: string
+          credits_cost: number | null
+          execution_time_ms: number
+          farmacia_id: string | null
+          id: string
+          metadata: Json | null
+          resource_type: string
+          timestamp: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          credits_cost?: number | null
+          execution_time_ms?: number
+          farmacia_id?: string | null
+          id?: string
+          metadata?: Json | null
+          resource_type: string
+          timestamp?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          credits_cost?: number | null
+          execution_time_ms?: number
+          farmacia_id?: string | null
+          id?: string
+          metadata?: Json | null
+          resource_type?: string
+          timestamp?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_resource_logs_farmacia_id_fkey"
+            columns: ["farmacia_id"]
+            isOneToOne: false
+            referencedRelation: "farmacie"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      admin_credits_per_farmacia: {
+        Args: never
+        Returns: {
+          calls_24h: number
+          calls_30d: number
+          calls_7d: number
+          credits_24h: number
+          credits_30d: number
+          credits_7d: number
+          farmacia_id: string
+          nome: string
+        }[]
+      }
+      admin_resource_top_farmacie: {
+        Args: { _from: string; _limit?: number; _to: string }
+        Returns: {
+          calls: number
+          farmacia_id: string
+          nome: string
+          total_ms: number
+        }[]
+      }
+      admin_resource_usage_series: {
+        Args: {
+          _bucket: string
+          _farmacia_id?: string
+          _from: string
+          _to: string
+        }
+        Returns: {
+          bucket: string
+          calls: number
+          resource_type: string
+          total_ms: number
+        }[]
+      }
+      admin_usage_alert_status: {
+        Args: { _window_hours?: number }
+        Returns: Json
+      }
       current_farmacia_id: { Args: { _uid: string }; Returns: string }
       is_farmacia_attiva: { Args: { _farmacia_id: string }; Returns: boolean }
       is_super_admin: { Args: { _uid: string }; Returns: boolean }
